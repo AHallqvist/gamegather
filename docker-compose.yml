@@ -4,9 +4,8 @@ services:
       context: ./app
     container_name: gamegather-app
     restart: unless-stopped
-    environment:
-      PORT: 3000
-      DATABASE_PATH: /data/gamegather.db
+    env_file:
+      - .env
     volumes:
       - sqlite_data:/data
     ports:
