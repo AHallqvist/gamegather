@@ -5,7 +5,7 @@ from src.database import get_connection
 # Instead, the game logic creates an event and this layer records it.
 #
 # In the design, the app should be structured like this:
-#   game logic -> event bus -> notification manager -> provider
+#   game logic -> notification queue -> delivery processor
 #
 # For this project, we keep it simple:
 #   game logic calls queue_notification(...)
@@ -14,24 +14,24 @@ from src.database import get_connection
 #
 # Pseudocode:
 #   when a game reaches the minimum threshold:
-#       queue notification for all players
+#       queue notification for all interested people
 #   when a gathering starts:
-#       queue notification for active players
+#       queue notification for active people
 #   later:
 #       read queued notifications
-#       send them to the chosen provider
+#       send them using each person's configured method
 
 
-def queue_notification(game_id: int, player_id: int, event_type: str, provider: str) -> None:
+def queue_notification(game_id: int, person_id: int, event_type: str) -> None:
     """
     Record a notification that should be sent later.
 
-    This keeps the core app logic independent from provider details.
+    This keeps the core app logic independent from delivery details.
     """
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO notifications (game_id, player_id, event_type, provider, status) VALUES (?, ?, ?, ?, 'queued')",
-            (game_id, player_id, event_type, provider),
+            "INSERT INTO notifications (game_id, person_id, event_type, status) VALUES (?, ?, ?, 'queued')",
+            (game_id, person_id, event_type),
         )
         conn.commit()
 
@@ -40,19 +40,25 @@ def process_notifications() -> int:
     """
     Simulate processing queued notifications.
 
-    A real app would call a provider such as email or Discord here.
+    A real app would send with the person's configured notification method here.
     For a class project, this can be a simplified version that marks them as sent.
 
     Pseudocode:
         notifications = query rows where status = 'queued'
         for each notification:
-            send via service provider
+            read person notification settings
+            send via that method
             mark as sent
         return how many were processed
     """
     with get_connection() as conn:
         pending = conn.execute(
-            "SELECT * FROM notifications WHERE status = 'queued'"
+            """
+            SELECT n.*, p.notification_method, p.notification_target
+            FROM notifications n
+            JOIN people p ON p.id = n.person_id
+            WHERE n.status = 'queued'
+            """
         ).fetchall()
 
         for item in pending:

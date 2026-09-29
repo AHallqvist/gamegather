@@ -6,7 +6,7 @@ import sqlite3
 #
 # In a class assignment, this is the place to explain:
 # - what each table represents
-# - how the app stores games, players, registrations, and attendance responses
+# - how the app stores games, people, registrations, and attendance responses
 # - how the application gets data in and out of SQLite
 #
 # Pseudocode:
@@ -41,7 +41,7 @@ def init_db() -> None:
     Create the necessary database tables when the app starts.
 
     This is the startup setup for the project. Without this step, the application
-    would not know how to store games, players, attendance, or notifications.
+    would not know how to store games, people, attendance, or notifications.
 
     Pseudocode:
         connect to database
@@ -51,19 +51,11 @@ def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(
             """
-            CREATE TABLE IF NOT EXISTS organizers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                email TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS players (
+            CREATE TABLE IF NOT EXISTS people (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 display_name TEXT NOT NULL,
-                email TEXT,
-                discord_user_id TEXT,
-                notification_preferences TEXT,
+                notification_method TEXT NOT NULL,
+                notification_target TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -73,27 +65,19 @@ def init_db() -> None:
                 title TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'draft',
                 min_players INTEGER NOT NULL DEFAULT 0,
-                ideal_players INTEGER,
-                max_players INTEGER,
-                location TEXT,
-                duration_minutes INTEGER,
-                notes TEXT,
-                public_url TEXT,
+                organizer_token TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (organizer_id) REFERENCES organizers(id)
+                FOREIGN KEY (organizer_id) REFERENCES people(id)
             );
 
             CREATE TABLE IF NOT EXISTS registrations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 game_id INTEGER NOT NULL,
-                player_id INTEGER NOT NULL,
-                joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                left_at TEXT,
-                is_active INTEGER NOT NULL DEFAULT 1,
+                person_id INTEGER NOT NULL,
                 notes TEXT,
                 FOREIGN KEY (game_id) REFERENCES games(id),
-                FOREIGN KEY (player_id) REFERENCES players(id)
+                FOREIGN KEY (person_id) REFERENCES people(id)
             );
 
             CREATE TABLE IF NOT EXISTS attendance_responses (
@@ -107,14 +91,13 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS notifications (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 game_id INTEGER NOT NULL,
-                player_id INTEGER NOT NULL,
+                person_id INTEGER NOT NULL,
                 event_type TEXT NOT NULL,
-                provider TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'queued',
                 sent_at TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (game_id) REFERENCES games(id),
-                FOREIGN KEY (player_id) REFERENCES players(id)
+                FOREIGN KEY (person_id) REFERENCES people(id)
             );
             """
         )

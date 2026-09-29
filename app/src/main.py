@@ -48,30 +48,24 @@ class CreateGameRequest(BaseModel):
     """
     organizer_id: int
     title: str
-    min_players: int = 0
-    ideal_players: int | None = None
-    max_players: int | None = None
-    location: str | None = None
-    duration_minutes: int | None = None
-    notes: str | None = None
+    min_players: int
 
 
-class CreatePlayerRequest(BaseModel):
+class CreatePersonRequest(BaseModel):
     """
-    This models the data used to create a player account or player record.
+    This models the data used to create a person record.
     """
     display_name: str
-    email: str | None = None
-    discord_user_id: str | None = None
-    notification_preferences: dict[str, Any] | None = None
+    notification_method: str
+    notification_target: str
 
 
 class RegisterPlayerRequest(BaseModel):
     """
     This model is used when a player signs up to join a game.
-    We only need the player_id and optional notes.
+    We only need the person_id and optional notes.
     """
-    player_id: int
+    person_id: int
     notes: str | None = None
 
 
@@ -107,11 +101,6 @@ def create_game_endpoint(payload: CreateGameRequest) -> dict[str, Any]:
         organizer_id=payload.organizer_id,
         title=payload.title,
         min_players=payload.min_players,
-        ideal_players=payload.ideal_players,
-        max_players=payload.max_players,
-        location=payload.location,
-        duration_minutes=payload.duration_minutes,
-        notes=payload.notes,
     )
     return {"ok": True, "game": game}
 
@@ -119,7 +108,7 @@ def create_game_endpoint(payload: CreateGameRequest) -> dict[str, Any]:
 @app.get("/games/{game_id}")
 def get_game_endpoint(game_id: int) -> dict[str, Any]:
     """
-    Read a single game and the players who are currently active.
+    Read a single game and the people who are currently active.
 
     Pseudocode:
         game = get_game(game_id)
@@ -133,10 +122,10 @@ def get_game_endpoint(game_id: int) -> dict[str, Any]:
     return result
 
 
-@app.post("/players")
-def create_player(payload: CreatePlayerRequest) -> dict[str, Any]:
+@app.post("/people")
+def create_person(payload: CreatePersonRequest) -> dict[str, Any]:
     """
-    Create a player record.
+    Create a person record.
 
     In a more complete app this might include validation, password handling, or
     notification onboarding. For this class project, we keep it simple.
@@ -146,43 +135,42 @@ def create_player(payload: CreatePlayerRequest) -> dict[str, Any]:
     with get_connection() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO players (display_name, email, discord_user_id, notification_preferences)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO people (display_name, notification_method, notification_target)
+            VALUES (?, ?, ?)
             """,
             (
                 payload.display_name,
-                payload.email,
-                payload.discord_user_id,
-                str(payload.notification_preferences or {}),
+                payload.notification_method,
+                payload.notification_target,
             ),
         )
         conn.commit()
-        return {"ok": True, "player": {"id": cursor.lastrowid}}
+        return {"ok": True, "person": {"id": cursor.lastrowid}}
 
 
 @app.post("/games/{game_id}/register")
 def register_for_game(game_id: int, payload: RegisterPlayerRequest) -> dict[str, Any]:
     """
-    Register a player to a game.
+    Register a person to a game.
 
-    This endpoint is the key player action for the MVP. A player joins and becomes
+    This endpoint is the key player action for the MVP. A person joins and becomes
     part of the interest count.
     """
-    if not payload.player_id:
-        raise HTTPException(status_code=400, detail="player_id is required")
-    result = create_registration(game_id=game_id, player_id=payload.player_id, notes=payload.notes)
+    if not payload.person_id:
+        raise HTTPException(status_code=400, detail="person_id is required")
+    result = create_registration(game_id=game_id, person_id=payload.person_id, notes=payload.notes)
     return {"ok": True, "registration": result}
 
 
-@app.delete("/games/{game_id}/register/{player_id}")
-def unregister_for_game(game_id: int, player_id: int) -> dict[str, bool]:
+@app.delete("/games/{game_id}/register/{person_id}")
+def unregister_for_game(game_id: int, person_id: int) -> dict[str, bool]:
     """
-    Remove a player from a game.
+    Remove a person from a game.
 
     In the design, leaving is a valid action, and the system should not permanently
     delete their previous participation history.
     """
-    remove_registration(game_id, player_id)
+    remove_registration(game_id, person_id)
     return {"ok": True}
 
 
@@ -193,8 +181,8 @@ def start_gathering(game_id: int) -> dict[str, Any]:
 
     Pseudocode:
         game.status = gathering
-        find all active players in the registration table
-        for each player:
+        find all active people in the registration table
+        for each person:
             queue notification
         return success response
     """
@@ -203,12 +191,12 @@ def start_gathering(game_id: int) -> dict[str, Any]:
 
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT player_id FROM registrations WHERE game_id = ? AND is_active = 1",
+            "SELECT person_id FROM registrations WHERE game_id = ?",
             (game_id,),
         ).fetchall()
 
     for row in rows:
-        queue_notification(game_id, row["player_id"], "gathering_started", "email")
+        queue_notification(game_id, row["person_id"], "gathering_started")
 
     return {"ok": True, "status": "gathering"}
 
@@ -258,7 +246,7 @@ def game_summary(game_id: int) -> dict[str, Any]:
     return {
         "game": result["game"],
         "active_player_count": count_active_players(game_id),
-        "players": result["players"],
+        "people": result["people"],
     }
 
 

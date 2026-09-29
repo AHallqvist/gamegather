@@ -1,4 +1,4 @@
-import time
+import secrets
 from datetime import datetime
 
 from src.database import get_connection
@@ -28,81 +28,79 @@ from src.database import get_connection
 #       mark the registration as inactive instead of deleting it
 
 
-def create_game(organizer_id: int, title: str, min_players: int, ideal_players: int | None,
-               max_players: int | None, location: str | None, duration_minutes: int | None,
-               notes: str | None):
+def create_game(organizer_id: int, title: str, min_players: int):
     """
     Create a new game proposal.
 
-    This is the first key action that an organizer performs. It should save all of
-    the game details and assign a public URL for players to visit.
+    This is the first key action that an organizer performs. It should save the
+    game details and generate the secret organizer link token.
     """
-    public_url = f"/games/{int(time.time())}"
+    organizer_token = secrets.token_urlsafe(24)
+    created_at = datetime.utcnow().isoformat()
     with get_connection() as conn:
         cursor = conn.execute(
             """
             INSERT INTO games (
-                organizer_id, title, status, min_players, ideal_players,
-                max_players, location, duration_minutes, notes, public_url,
+                organizer_id, title, status, min_players, organizer_token,
                 created_at, updated_at
-            ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, 'open', ?, ?, ?, ?)
             """,
             (
                 organizer_id,
                 title,
                 min_players,
-                ideal_players,
-                max_players,
-                location,
-                duration_minutes,
-                notes,
-                public_url,
-                datetime.utcnow().isoformat(),
-                datetime.utcnow().isoformat(),
+                organizer_token,
+                created_at,
+                created_at,
             ),
         )
         conn.commit()
-        return {"id": cursor.lastrowid, "public_url": public_url}
+        game_id = cursor.lastrowid
+        return {
+            "id": game_id,
+            "public_url": f"/games/{game_id}",
+            "organizer_url": f"/organizer/games/{organizer_token}",
+        }
 
 
 def get_game(game_id: int):
     """
-    Fetch one game and its active players.
+    Fetch one game and its active people.
 
     This is useful for the organizer dashboard and for the public page.
     Pseudocode:
         game = query games table by id
         if game not found: return None
-        players = query active registrations joined with players
-        return {game, players}
+        people = query registrations joined with people
+        return {game, people}
     """
     with get_connection() as conn:
         game = conn.execute("SELECT * FROM games WHERE id = ?", (game_id,)).fetchone()
         if not game:
             return None
-        players = conn.execute(
+        people = conn.execute(
             """
             SELECT p.*
             FROM registrations r
-            JOIN players p ON p.id = r.player_id
-            WHERE r.game_id = ? AND r.is_active = 1
+            JOIN people p ON p.id = r.person_id
+            WHERE r.game_id = ?
             """,
             (game_id,),
         ).fetchall()
-        return {"game": dict(game), "players": [dict(row) for row in players]}
+        return {"game": dict(game), "people": [dict(row) for row in people]}
 
 
 def count_active_players(game_id: int) -> int:
     """
-    Count the number of players actively registered for a game.
+    Count the number of people actively registered for a game.
 
     Pseudocode:
-        query rows where game_id matches and is_active = 1
+        query rows where game_id matches
         return number of rows
     """
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS player_count FROM registrations WHERE game_id = ? AND is_active = 1",
+            "SELECT COUNT(*) AS player_count FROM registrations WHERE game_id = ?",
             (game_id,),
         ).fetchone()
         return int(row["player_count"] or 0)
@@ -129,47 +127,42 @@ def set_game_status(game_id: int, status: str) -> None:
         conn.commit()
 
 
-def create_registration(game_id: int, player_id: int, notes: str | None):
+def create_registration(game_id: int, person_id: int, notes: str | None):
     """
-    Add a player to a game if they are not already active in it.
+    Add a person to a game if they are not already registered for it.
 
     Pseudocode:
-        check if player already has an active registration for this game
+        check if person already has a registration for this game
         if yes: return existing registration
-        else insert a new row with is_active = 1
+        else insert a new row
     """
     with get_connection() as conn:
         existing = conn.execute(
-            "SELECT id FROM registrations WHERE game_id = ? AND player_id = ? AND is_active = 1",
-            (game_id, player_id),
+            "SELECT id FROM registrations WHERE game_id = ? AND person_id = ?",
+            (game_id, person_id),
         ).fetchone()
         if existing:
             return {"id": existing["id"], "already_registered": True}
 
         cursor = conn.execute(
-            "INSERT INTO registrations (game_id, player_id, notes, is_active) VALUES (?, ?, ?, 1)",
-            (game_id, player_id, notes),
+            "INSERT INTO registrations (game_id, person_id, notes) VALUES (?, ?, ?)",
+            (game_id, person_id, notes),
         )
         conn.commit()
         return {"id": cursor.lastrowid, "already_registered": False}
 
 
-def remove_registration(game_id: int, player_id: int) -> None:
+def remove_registration(game_id: int, person_id: int) -> None:
     """
-    Remove a player from a game without deleting the history.
-
-    This should not permanently delete the row. Instead, mark the registration as
-    inactive and record when they left.
+    Remove a person from a game by deleting the registration row.
 
     Pseudocode:
-        update registrations
-        set is_active = 0
-        set left_at = now
-        where game_id and player_id match
+        delete from registrations
+        where game_id and person_id match
     """
     with get_connection() as conn:
         conn.execute(
-            "UPDATE registrations SET is_active = 0, left_at = ? WHERE game_id = ? AND player_id = ? AND is_active = 1",
-            (datetime.utcnow().isoformat(), game_id, player_id),
+            "DELETE FROM registrations WHERE game_id = ? AND person_id = ?",
+            (game_id, person_id),
         )
         conn.commit()
