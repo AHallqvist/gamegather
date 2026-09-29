@@ -62,6 +62,25 @@ def create_game(
     }
 
 
+def list_open_games() -> list[dict[str, Any]]:
+    """Fetch all open games."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT 
+                id,
+                title,
+                status,
+                min_players,
+                organizer_name,
+                created_at
+            FROM games 
+            WHERE status = 'open' 
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+
 def get_game(game_id: int) -> dict[str, Any] | None:
     """Fetch one game and its registrations."""
     with get_connection() as conn:
@@ -167,15 +186,19 @@ def remove_registration(registration_id: int) -> None:
         conn.commit()
 
 
-def start_gathering(game_id: int) -> dict[str, Any]:
-    """Transition a game into gathering and queue notifications for registrations."""
+def start_gathering(organizer_token: str) -> dict[str, Any]:
+    """Transition the organizer's game into gathering and queue notifications."""
     with get_connection() as conn:
-        game = conn.execute("SELECT * FROM games WHERE id = ?", (game_id,)).fetchone()
+        game = conn.execute(
+            "SELECT * FROM games WHERE organizer_token = ?",
+            (organizer_token,),
+        ).fetchone()
         if not game:
-            raise ValueError("Game not found")
+            raise ValueError("Organizer link not found")
         if game["status"] != "open":
             raise ValueError("Game is not open for gathering")
 
+        game_id = game["id"]
         registrations = conn.execute(
             "SELECT * FROM registrations WHERE game_id = ?",
             (game_id,),

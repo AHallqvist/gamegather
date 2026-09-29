@@ -6,13 +6,13 @@ from pydantic import BaseModel
 
 from src.database import init_db
 from src.services.game_service import (
-    count_active_players,
     create_game,
     create_registration,
     get_game,
     record_attendance,
     remove_registration,
     start_gathering,
+    list_open_games,
 )
 
 
@@ -43,6 +43,10 @@ class AttendanceRequest(BaseModel):
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "gamegather"}
 
+@app.get("/games")
+def get_all_open_games() -> dict[str, Any]:
+    games = list_open_games()
+    return {"games": games}
 
 @app.post("/games")
 def create_game_endpoint(payload: CreateGameRequest) -> dict[str, Any]:
@@ -93,13 +97,13 @@ def unregister_for_game(registration_id: int) -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.post("/games/{game_id}/gather")
-def start_gathering_endpoint(game_id: int) -> dict[str, Any]:
+@app.post("/organizer/games/{organizer_token}/gather")
+def start_gathering_endpoint(organizer_token: str) -> dict[str, Any]:
     try:
-        result = start_gathering(game_id)
+        result = start_gathering(organizer_token)
     except ValueError as exc:
         detail = str(exc)
-        status_code = 404 if detail == "Game not found" else 400
+        status_code = 404 if detail == "Organizer link not found" else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     return {"ok": True, **result}
@@ -116,18 +120,6 @@ def submit_attendance(registration_id: int, payload: AttendanceRequest) -> dict[
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return {"ok": True, "response": payload.response}
-
-
-@app.get("/games/{game_id}/summary")
-def game_summary(game_id: int) -> dict[str, Any]:
-    result = get_game(game_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Game not found")
-    return {
-        "game": result["game"],
-        "active_player_count": count_active_players(game_id),
-        "registrations": result["registrations"],
-    }
 
 
 if __name__ == "__main__":
