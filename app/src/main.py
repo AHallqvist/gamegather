@@ -10,30 +10,11 @@ from src.services.game_service import (
     create_game,
     create_registration,
     get_game,
+    record_attendance,
     remove_registration,
-    set_game_status,
+    start_gathering,
 )
-from src.services.notification_service import queue_notification
 
-# This file is the API entry point for the app.
-# It is where the HTTP routes are defined for the web app.
-#
-# A class project would typically explain this file as:
-# - the public interface for the system
-# - the place where requests are received
-# - the place where the app calls the service layer
-#
-# Pseudocode:
-#   app = FastAPI()
-#   initialize database
-#   define routes for:
-#       create game
-#       get game
-#       create player
-#       register player for a game
-#       start gathering
-#       submit attendance
-#       show summary
 
 init_db()
 
@@ -41,212 +22,111 @@ app = FastAPI(title="GameGather")
 
 
 class CreateGameRequest(BaseModel):
-    """
-    This request model is used when an organizer creates a new game proposal.
-
-    Students can think of it as the form data submitted by the organizer.
-    """
-    organizer_id: int
     title: str
     min_players: int
+    organizer_name: str
+    organizer_notification_method: str
+    organizer_notification_target: str
 
 
-class CreatePersonRequest(BaseModel):
-    """
-    This models the data used to create a person record.
-    """
+class CreateRegistrationRequest(BaseModel):
     display_name: str
     notification_method: str
     notification_target: str
 
 
-class RegisterPlayerRequest(BaseModel):
-    """
-    This model is used when a player signs up to join a game.
-    We only need the person_id and optional notes.
-    """
-    person_id: int
-    notes: str | None = None
-
-
 class AttendanceRequest(BaseModel):
-    """
-    This model captures a player's response to a gather request.
-    Valid values are currently:
-        - coming
-        - declined
-    """
     response: str
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    """
-    A simple endpoint to confirm the server is running.
-
-    Pseudocode:
-        return {status: ok, service: gamegather}
-    """
     return {"status": "ok", "service": "gamegather"}
 
 
 @app.post("/games")
 def create_game_endpoint(payload: CreateGameRequest) -> dict[str, Any]:
-    """
-    Create a new game by calling the game service.
-
-    This endpoint represents the organizer creating a game proposal.
-    """
     game = create_game(
-        organizer_id=payload.organizer_id,
         title=payload.title,
         min_players=payload.min_players,
+        organizer_name=payload.organizer_name,
+        organizer_notification_method=payload.organizer_notification_method,
+        organizer_notification_target=payload.organizer_notification_target,
     )
     return {"ok": True, "game": game}
 
 
 @app.get("/games/{game_id}")
 def get_game_endpoint(game_id: int) -> dict[str, Any]:
-    """
-    Read a single game and the people who are currently active.
-
-    Pseudocode:
-        game = get_game(game_id)
-        if not found:
-            return 404
-        return game
-    """
     result = get_game(game_id)
     if not result:
         raise HTTPException(status_code=404, detail="Game not found")
     return result
 
 
-@app.post("/people")
-def create_person(payload: CreatePersonRequest) -> dict[str, Any]:
-    """
-    Create a person record.
-
-    In a more complete app this might include validation, password handling, or
-    notification onboarding. For this class project, we keep it simple.
-    """
-    from src.database import get_connection
-
-    with get_connection() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO people (display_name, notification_method, notification_target)
-            VALUES (?, ?, ?)
-            """,
-            (
-                payload.display_name,
-                payload.notification_method,
-                payload.notification_target,
-            ),
-        )
-        conn.commit()
-        return {"ok": True, "person": {"id": cursor.lastrowid}}
-
-
 @app.post("/games/{game_id}/register")
-def register_for_game(game_id: int, payload: RegisterPlayerRequest) -> dict[str, Any]:
-    """
-    Register a person to a game.
+def register_for_game(game_id: int, payload: CreateRegistrationRequest) -> dict[str, Any]:
+    try:
+        registration = create_registration(
+            game_id=game_id,
+            display_name=payload.display_name,
+            notification_method=payload.notification_method,
+            notification_target=payload.notification_target,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "Game not found" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
-    This endpoint is the key player action for the MVP. A person joins and becomes
-    part of the interest count.
-    """
-    if not payload.person_id:
-        raise HTTPException(status_code=400, detail="person_id is required")
-    result = create_registration(game_id=game_id, person_id=payload.person_id, notes=payload.notes)
-    return {"ok": True, "registration": result}
+    return {"ok": True, "registration": registration}
 
 
-@app.delete("/games/{game_id}/register/{person_id}")
-def unregister_for_game(game_id: int, person_id: int) -> dict[str, bool]:
-    """
-    Remove a person from a game.
+@app.delete("/registrations/{registration_id}")
+def unregister_for_game(registration_id: int) -> dict[str, bool]:
+    try:
+        remove_registration(registration_id)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "Registration not found" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
-    In the design, leaving is a valid action, and the system should not permanently
-    delete their previous participation history.
-    """
-    remove_registration(game_id, person_id)
     return {"ok": True}
 
 
 @app.post("/games/{game_id}/gather")
-def start_gathering(game_id: int) -> dict[str, Any]:
-    """
-    Trigger the Gather phase for a game.
+def start_gathering_endpoint(game_id: int) -> dict[str, Any]:
+    try:
+        result = start_gathering(game_id)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "Game not found" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
-    Pseudocode:
-        game.status = gathering
-        find all active people in the registration table
-        for each person:
-            queue notification
-        return success response
-    """
-    set_game_status(game_id, "gathering")
-    from src.database import get_connection
-
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT person_id FROM registrations WHERE game_id = ?",
-            (game_id,),
-        ).fetchall()
-
-    for row in rows:
-        queue_notification(game_id, row["person_id"], "gathering_started")
-
-    return {"ok": True, "status": "gathering"}
+    return {"ok": True, **result}
 
 
 @app.post("/registrations/{registration_id}/attendance")
 def submit_attendance(registration_id: int, payload: AttendanceRequest) -> dict[str, Any]:
-    """
-    Record whether a player is coming or declining.
-
-    This is the final planner step before starting the game.
-    """
     if payload.response not in {"coming", "declined"}:
         raise HTTPException(status_code=400, detail="response must be 'coming' or 'declined'")
 
-    from src.database import get_connection
-
-    with get_connection() as conn:
-        registration = conn.execute(
-            "SELECT * FROM registrations WHERE id = ?",
-            (registration_id,),
-        ).fetchone()
-        if not registration:
-            raise HTTPException(status_code=404, detail="Registration not found")
-
-        conn.execute(
-            "INSERT INTO attendance_responses (registration_id, response) VALUES (?, ?)",
-            (registration_id, payload.response),
-        )
-        conn.commit()
+    try:
+        record_attendance(registration_id, payload.response)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return {"ok": True, "response": payload.response}
 
 
 @app.get("/games/{game_id}/summary")
 def game_summary(game_id: int) -> dict[str, Any]:
-    """
-    Return the current summary for a game.
-
-    This endpoint would be useful to the organizer dashboard to show:
-        - current player count
-        - who has joined
-        - current game state
-    """
     result = get_game(game_id)
     if not result:
         raise HTTPException(status_code=404, detail="Game not found")
     return {
         "game": result["game"],
         "active_player_count": count_active_players(game_id),
-        "people": result["people"],
+        "registrations": result["registrations"],
     }
 
 
