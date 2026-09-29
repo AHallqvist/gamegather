@@ -1,14 +1,20 @@
 import os
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel
+from starlette.staticfiles import StaticFiles
+from starlette.templating import Jinja2Templates
 
 from src.database import init_db
 from src.services.game_service import (
     create_game,
     create_registration,
     get_game,
+    get_organizer_game,
     record_attendance,
     remove_registration,
     start_gathering,
@@ -19,6 +25,9 @@ from src.services.game_service import (
 init_db()
 
 app = FastAPI(title="GameGather")
+APP_DIR = Path(__file__).resolve().parent.parent
+app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=APP_DIR / "templates")
 
 
 class CreateGameRequest(BaseModel):
@@ -37,6 +46,121 @@ class CreateRegistrationRequest(BaseModel):
 
 class AttendanceRequest(BaseModel):
     response: str
+
+
+def page_error(request: Request, status_code: int, message: str) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request=request,
+        name="error.html",
+        context={"message": message, "status_code": status_code},
+        status_code=status_code,
+    )
+
+
+@app.get("/", response_class=HTMLResponse)
+def home_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={"games": list_open_games()},
+    )
+
+
+@app.get("/games/new", response_class=HTMLResponse)
+def new_game_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request=request, name="new_game.html")
+
+
+@app.post("/games/new")
+async def create_game_form(request: Request) -> Response:
+    form = await request.form()
+    title = str(form.get("title", "")).strip()
+    organizer_name = str(form.get("organizer_name", "")).strip()
+    notification_target = str(form.get("notification_target", "")).strip()
+    try:
+        min_players = int(form.get("min_players", ""))
+        if min_players < 1:
+            raise ValueError
+    except (TypeError, ValueError):
+        return page_error(request, 400, "Minimum players must be a positive whole number.")
+    if not title or not organizer_name or not notification_target:
+        return page_error(request, 400, "Please complete all required fields.")
+
+    try:
+        game = create_game(
+            title=title,
+            min_players=min_players,
+            organizer_name=organizer_name,
+            organizer_notification_method=str(form.get("notification_method", "email")),
+            organizer_notification_target=notification_target,
+        )
+    except ValueError as exc:
+        return page_error(request, 400, str(exc))
+
+    return RedirectResponse(url=game["organizer_url"], status_code=303)
+
+
+@app.get("/organizer/games/{organizer_token}", response_class=HTMLResponse)
+def organizer_game_page(request: Request, organizer_token: str) -> HTMLResponse:
+    result = get_organizer_game(organizer_token)
+    if not result:
+        return page_error(request, 404, "Organizer link not found.")
+    return templates.TemplateResponse(
+        request=request,
+        name="organizer_game.html",
+        context={
+            **result,
+            "registration_count": len(result["registrations"]),
+            "minimum_reached": len(result["registrations"]) >= result["game"]["min_players"],
+            "organizer_token": organizer_token,
+        },
+    )
+
+
+@app.post("/organizer/games/{organizer_token}/gather-form")
+def gather_game_form(request: Request, organizer_token: str) -> Response:
+    try:
+        start_gathering(organizer_token)
+    except ValueError as exc:
+        status_code = 404 if str(exc) == "Organizer link not found" else 400
+        return page_error(request, status_code, str(exc))
+    return RedirectResponse(url=f"/organizer/games/{quote(organizer_token)}", status_code=303)
+
+
+@app.get("/games/{game_id}")
+def public_game_page(request: Request, game_id: int) -> Any:
+    result = get_game(game_id)
+    if not result:
+        if "text/html" in request.headers.get("accept", ""):
+            return page_error(request, 404, "Game not found.")
+        raise HTTPException(status_code=404, detail="Game not found")
+    if "text/html" not in request.headers.get("accept", ""):
+        return result
+    return templates.TemplateResponse(
+        request=request,
+        name="game.html",
+        context={**result, "registration_count": len(result["registrations"])},
+    )
+
+
+@app.post("/games/{game_id}/register-form")
+async def create_registration_form(request: Request, game_id: int) -> Response:
+    form = await request.form()
+    display_name = str(form.get("display_name", "")).strip()
+    notification_target = str(form.get("notification_target", "")).strip()
+    if not display_name or not notification_target:
+        return page_error(request, 400, "Please provide your name and notification address.")
+    try:
+        create_registration(
+            game_id=game_id,
+            display_name=display_name,
+            notification_method=str(form.get("notification_method", "email")),
+            notification_target=notification_target,
+        )
+    except ValueError as exc:
+        status_code = 404 if str(exc) == "Game not found" else 400
+        return page_error(request, status_code, str(exc))
+    return RedirectResponse(url=f"/games/{game_id}", status_code=303)
 
 
 @app.get("/health")
@@ -58,14 +182,6 @@ def create_game_endpoint(payload: CreateGameRequest) -> dict[str, Any]:
         organizer_notification_target=payload.organizer_notification_target,
     )
     return {"ok": True, "game": game}
-
-
-@app.get("/games/{game_id}")
-def get_game_endpoint(game_id: int) -> dict[str, Any]:
-    result = get_game(game_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Game not found")
-    return result
 
 
 @app.post("/games/{game_id}/register")
@@ -120,6 +236,19 @@ def submit_attendance(registration_id: int, payload: AttendanceRequest) -> dict[
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return {"ok": True, "response": payload.response}
+
+
+@app.post("/registrations/{registration_id}/attendance-form")
+async def attendance_form(request: Request, registration_id: int) -> Response:
+    form = await request.form()
+    response = str(form.get("response", ""))
+    if response not in {"coming", "declined"}:
+        return page_error(request, 400, "Choose coming or declined.")
+    try:
+        game_id = record_attendance(registration_id, response)
+    except ValueError as exc:
+        return page_error(request, 404, str(exc))
+    return RedirectResponse(url=f"/games/{game_id}", status_code=303)
 
 
 if __name__ == "__main__":

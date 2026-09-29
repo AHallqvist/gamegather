@@ -101,8 +101,31 @@ def get_game(game_id: int) -> dict[str, Any] | None:
             return None
 
         registrations = conn.execute(
-            "SELECT * FROM registrations WHERE game_id = ?",
+            """
+            SELECT id, game_id, display_name, attendance_response, responded_at
+            FROM registrations WHERE game_id = ?
+            """,
             (game_id,),
+        ).fetchall()
+        return {
+            "game": dict(game),
+            "registrations": [dict(row) for row in registrations],
+        }
+
+
+def get_organizer_game(organizer_token: str) -> dict[str, Any] | None:
+    """Fetch a game and its registrations using its secret organizer token."""
+    with get_connection() as conn:
+        game = conn.execute(
+            "SELECT * FROM games WHERE organizer_token = ?",
+            (organizer_token,),
+        ).fetchone()
+        if not game:
+            return None
+
+        registrations = conn.execute(
+            "SELECT * FROM registrations WHERE game_id = ?",
+            (game["id"],),
         ).fetchall()
         return {
             "game": dict(game),
@@ -198,15 +221,19 @@ def remove_registration(registration_id: int) -> None:
         conn.commit()
 
 
-def start_gathering(game_id: int) -> dict[str, Any]:
-    """Transition a game into gathering and queue notifications for registrations."""
+def start_gathering(organizer_token: str) -> dict[str, Any]:
+    """Transition the organizer's game into gathering and queue notifications."""
     with get_connection() as conn:
-        game = conn.execute("SELECT * FROM games WHERE id = ?", (game_id,)).fetchone()
+        game = conn.execute(
+            "SELECT * FROM games WHERE organizer_token = ?",
+            (organizer_token,),
+        ).fetchone()
         if not game:
-            raise ValueError("Game not found")
+            raise ValueError("Organizer link not found")
         if game["status"] != "open":
             raise ValueError("Game is not open for gathering")
 
+        game_id = game["id"]
         registrations = conn.execute(
             "SELECT * FROM registrations WHERE game_id = ?",
             (game_id,),
@@ -233,18 +260,26 @@ def start_gathering(game_id: int) -> dict[str, Any]:
     return {"status": "gathering"}
 
 
-def record_attendance(registration_id: int, response: str) -> None:
+def record_attendance(registration_id: int, response: str) -> int:
     """Store a registration's attendance response."""
     with get_connection() as conn:
         registration = conn.execute(
-            "SELECT id FROM registrations WHERE id = ?",
+            """
+            SELECT r.id, r.game_id, g.status
+            FROM registrations r
+            JOIN games g ON g.id = r.game_id
+            WHERE r.id = ?
+            """,
             (registration_id,),
         ).fetchone()
         if not registration:
             raise ValueError("Registration not found")
+        if registration["status"] != "gathering":
+            raise ValueError("Attendance is not being collected for this game")
 
         conn.execute(
             "UPDATE registrations SET attendance_response = ?, responded_at = ? WHERE id = ?",
             (response, datetime.utcnow().isoformat(), registration_id),
         )
         conn.commit()
+        return int(registration["game_id"])

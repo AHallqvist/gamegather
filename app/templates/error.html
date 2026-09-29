@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Something went wrong · GameGather{% endblock %}
+{% block content %}
+  <section class="card empty-state">
+    <p class="eyebrow">{{ status_code }}</p>
+    <h1>Could not complete that</h1>
+    <p>{{ message }}</p>
+    <a href="/">Back to open games</a>
+  </section>
+{% endblock %}

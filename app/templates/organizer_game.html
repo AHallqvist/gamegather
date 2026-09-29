@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Organizer · {{ game.title }}{% endblock %}
+{% block content %}
+  <p class="eyebrow">Organizer page</p>
+  <h1>{{ game.title }}</h1>
+  <p class="muted">Status: <strong>{{ game.status }}</strong></p>
+
+  <section class="card count-card">
+    <strong>{{ registration_count }}</strong>
+    <span>registered · {{ game.min_players }} needed to gather</span>
+  </section>
+
+  {% if minimum_reached and game.status == "open" %}
+    <section class="notice success">
+      <p>You have enough interest to start gathering.</p>
+      <form action="/organizer/games/{{ organizer_token }}/gather-form" method="post">
+        <button type="submit">Start gathering</button>
+      </form>
+    </section>
+  {% elif game.status == "open" %}
+    <p class="notice">You need {{ game.min_players - registration_count }} more registration(s) to start gathering.</p>
+  {% endif %}
+
+  {% if registrations %}
+    <section class="card">
+      <h2>Registrations</h2>
+      <ul class="registration-list">
+        {% for registration in registrations %}
+          <li>
+            <span>{{ registration.display_name }}</span>
+            {% if game.status == "gathering" %}
+              <span class="muted">{{ registration.attendance_response or "Awaiting response" }}</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% else %}
+    <section class="card"><p>No one has registered yet.</p></section>
+  {% endif %}
+
+  <p><a href="/games/{{ game.id }}">View public game page</a></p>
+{% endblock %}

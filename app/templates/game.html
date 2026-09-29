@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ game.title }} · GameGather{% endblock %}
+{% block content %}
+  <p class="eyebrow">Open game</p>
+  <h1>{{ game.title }}</h1>
+  <p>Organized by {{ game.organizer_name }}</p>
+
+  <section class="card count-card">
+    <strong>{{ registration_count }}</strong>
+    <span>registered · {{ game.min_players }} needed to gather</span>
+  </section>
+
+  {% if game.status == "open" %}
+    <section class="form-panel">
+      <h2>Register your interest</h2>
+      <form action="/games/{{ game.id }}/register-form" method="post" class="stack">
+        <label>Your name
+          <input name="display_name" required maxlength="100">
+        </label>
+        <label>Notification method
+          <select name="notification_method" required>
+            <option value="email">Email</option>
+          </select>
+        </label>
+        <label>Email address
+          <input name="notification_target" type="email" required autocomplete="email">
+        </label>
+        <button type="submit">Register</button>
+      </form>
+    </section>
+  {% else %}
+    <p class="notice">Registration is closed. The organizer has started gathering.</p>
+    {% if registrations %}
+      <section class="card">
+        <h2>Registrations</h2>
+        {% for registration in registrations %}
+          <div class="attendance-row">
+            <span>{{ registration.display_name }}</span>
+          </div>
+        {% endfor %}
+      </section>
+    {% endif %}
+  {% endif %}
+{% endblock %}
