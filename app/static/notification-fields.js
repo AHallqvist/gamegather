@@ -24,7 +24,9 @@ document.querySelectorAll("form").forEach((form) => {
     label.textContent = option.dataset.label;
     instructions.textContent = option.dataset.instructions;
     target.type = method.value === "email" ? "email" : method.value === "sms" ? "tel" : "text";
-    target.placeholder = method.value === "sms" ? "+46701234567" : method.value === "email" ? "you@example.com" : "Discord user ID";
+    target.placeholder = method.value === "sms" ? "+46701234567" : method.value === "email" ? "you@example.com" : option.dataset.label;
+    const telegramLink = form.querySelector("[data-telegram-link]");
+    if (telegramLink) telegramLink.hidden = method.value !== "telegram";
     target.autocomplete = method.value === "email" ? "email" : method.value === "sms" ? "tel" : "off";
     if (method.value === "sms") {
       target.pattern = "\\+467[02369][0-9]{7}";

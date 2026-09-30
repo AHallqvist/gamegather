@@ -48,6 +48,8 @@ def sms_content(item: Any) -> str:
         return f"GameGather: {title} has enough players. Gather: {base_url}/organizer/games/{quote(game['organizer_token'])}"
     if item["event_type"] == "gathering_started":
         return f"GameGather: {title} is gathering. Coming or declining? {base_url}/attendance/{quote(item['action_token'])}"
+    if item["event_type"] == "game_started":
+        return f"GameGather: {title} has started. Attendance responses are now closed. {base_url}/games/{game['id']}"
     raise ValueError("Unsupported SMS notification event")
 
 

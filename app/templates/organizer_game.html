@@ -21,6 +21,17 @@
     <p class="notice">You need {{ game.min_players - registration_count }} more registration(s) to start gathering.</p>
   {% endif %}
 
+  {% if game.status == "gathering" %}
+    <section class="notice">
+      <p>You can start the game regardless of the confirmed player count. Starting locks further changes and notifies anyone who has not responded.</p>
+      <form action="/organizer/games/{{ organizer_token }}/start-form" method="post">
+        <button type="submit">Start game</button>
+      </form>
+    </section>
+  {% elif game.status == "started" %}
+    <p class="notice">This game has started. Further changes are locked.</p>
+  {% endif %}
+
   {% if registrations %}
     <section class="card">
       <h2>Registrations</h2>
@@ -28,8 +39,8 @@
         {% for registration in registrations %}
           <li>
             <span>{{ registration.display_name }}</span>
-            {% if game.status == "gathering" %}
-              <span class="muted">{{ registration.attendance_response or "Awaiting response" }}</span>
+            {% if game.status in ["gathering", "started"] %}
+              <span class="muted">{{ registration.attendance_response or ("No response" if game.status == "started" else "Awaiting response") }}</span>
             {% endif %}
           </li>
         {% endfor %}

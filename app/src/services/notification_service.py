@@ -2,6 +2,7 @@ import logging
 import os
 import smtplib
 import ssl
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from smtplib import SMTPRecipientsRefused, SMTPResponseException
@@ -27,10 +28,12 @@ def queue_notification(
     notification_target: str,
     event_type: str,
     action_token: str | None = None,
+    *,
+    connection: sqlite3.Connection | None = None,
 ) -> None:
     """Record a notification that should be sent later."""
     require_enabled_method(notification_method)
-    with get_connection() as conn:
+    def insert(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             INSERT INTO notifications (
@@ -54,7 +57,11 @@ def queue_notification(
                 action_token,
             ),
         )
-        conn.commit()
+    if connection is not None:
+        insert(connection)
+    else:
+        with get_connection() as conn:
+            insert(conn)
 
 
 def _smtp_settings() -> dict[str, Any]:
@@ -101,6 +108,13 @@ def _notification_content(item: Any, game: Any, base_url: str) -> tuple[str, str
             f"Hi {item['recipient_name']},\n\n"
             f"The organizer has started gathering for {game_title}.\n"
             f"Please respond to the attendance request: {attendance_url}\n\n"
+            f"Game page: {public_url}\n"
+        )
+    elif item["event_type"] == "game_started":
+        subject = f"Game started: {game_title}"
+        body = (
+            f"Hi {item['recipient_name']},\n\n"
+            f"{game_title} has started. Attendance responses are now closed.\n"
             f"Game page: {public_url}\n"
         )
     else:

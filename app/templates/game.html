@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ game.title }} · GameGather{% endblock %}
 {% block content %}
-  <p class="eyebrow">Open game</p>
+  <p class="eyebrow">{{ game.status }}</p>
   <h1>{{ game.title }}</h1>
   <p>Organized by {{ game.organizer_name }}</p>
 
@@ -22,7 +22,11 @@
       </form>
     </section>
   {% else %}
-    <p class="notice">Registration is closed. The organizer has started gathering.</p>
+    {% if game.status == "started" %}
+      <p class="notice">This game has started. Registration and attendance responses are closed.</p>
+    {% else %}
+      <p class="notice">Registration is closed. The organizer has started gathering.</p>
+    {% endif %}
     {% if registrations %}
       <section class="card">
         <h2>Registrations</h2>

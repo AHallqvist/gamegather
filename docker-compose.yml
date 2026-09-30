@@ -11,6 +11,7 @@ services:
       EMAIL_ENABLED: ${EMAIL_ENABLED:-true}
       DISCORD_ENABLED: ${DISCORD_ENABLED:-false}
       SMS_ENABLED: ${SMS_ENABLED:-false}
+      TELEGRAM_ENABLED: ${TELEGRAM_ENABLED:-false}
     volumes:
       - sqlite_data:/data
     ports:

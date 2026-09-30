@@ -48,6 +48,20 @@ Messages contain a short game description and the private organizer or attendanc
 link. `sent` means Vonage accepted the message, not confirmed handset delivery.
 Vonage charges per SMS segment; long links and Unicode can require extra segments.
 
+## Telegram notifications
+
+Set `TELEGRAM_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, and
+`TELEGRAM_BOT_USERNAME=gamegather_notifications_bot` using `.env.example`.
+Open https://t.me/gamegather_notifications_bot and press Start. The bot replies
+in the private chat with the chat ID to enter when selecting Telegram on the
+website. No user accounts or verification records are stored.
+
+The app uses long polling, so no public webhook endpoint is needed. Run one
+polling app instance per bot token, and do not configure a webhook for this bot.
+Telegram sends organizer confirmations, minimum-player alerts, and private
+attendance links through the existing queue and retry policy. Set `BASE_URL`
+to an address recipients can reach.
+
 ## Purpose
 
 This project implements the first slice of the product described in `design.md`:

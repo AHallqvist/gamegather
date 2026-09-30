@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -22,6 +22,7 @@ from src.services.game_service import (
     record_attendance,
     remove_registration,
     start_gathering,
+    start_game,
     list_open_games,
 )
 from src.services.notification_service import process_notifications
@@ -45,25 +46,30 @@ async def notification_worker() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     validate_notification_configuration()
+    app.state.telegram_bot_username = os.environ.get("TELEGRAM_BOT_USERNAME", "gamegather_notifications_bot")
     init_db()
-    discord_enabled = any(method.name == "discord" for method in enabled_methods())
-    if discord_enabled:
-        from src.services.discord_service import start_discord_service
+    methods = {method.name for method in enabled_methods()}
+    async with AsyncExitStack() as services:
+        if "discord" in methods:
+            from src.services.discord_service import start_discord_service, stop_discord_service
 
-        await start_discord_service()
-    worker = asyncio.create_task(notification_worker())
-    try:
-        yield
-    finally:
-        worker.cancel()
+            await start_discord_service()
+            services.push_async_callback(stop_discord_service)
+        if "telegram" in methods:
+            from src.services.telegram_service import TelegramService
+
+            telegram = TelegramService()
+            await telegram.start()
+            services.push_async_callback(telegram.close)
+        worker = asyncio.create_task(notification_worker())
         try:
-            await worker
-        except asyncio.CancelledError:
-            pass
-        if discord_enabled:
-            from src.services.discord_service import stop_discord_service
-
-            await stop_discord_service()
+            yield
+        finally:
+            worker.cancel()
+            try:
+                await worker
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="GameGather", lifespan=lifespan)
@@ -162,6 +168,16 @@ def organizer_game_page(request: Request, organizer_token: str) -> HTMLResponse:
 def gather_game_form(request: Request, organizer_token: str) -> Response:
     try:
         start_gathering(organizer_token)
+    except ValueError as exc:
+        status_code = 404 if str(exc) == "Organizer link not found" else 400
+        return page_error(request, status_code, str(exc))
+    return RedirectResponse(url=f"/organizer/games/{quote(organizer_token)}", status_code=303)
+
+
+@app.post("/organizer/games/{organizer_token}/start-form")
+def start_game_form(request: Request, organizer_token: str) -> Response:
+    try:
+        start_game(organizer_token)
     except ValueError as exc:
         status_code = 404 if str(exc) == "Organizer link not found" else 400
         return page_error(request, status_code, str(exc))
@@ -269,6 +285,16 @@ def start_gathering_endpoint(organizer_token: str) -> dict[str, Any]:
         status_code = 404 if detail == "Organizer link not found" else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
+    return {"ok": True, **result}
+
+
+@app.post("/organizer/games/{organizer_token}/start")
+def start_game_endpoint(organizer_token: str) -> dict[str, Any]:
+    try:
+        result = start_game(organizer_token)
+    except ValueError as exc:
+        status_code = 404 if str(exc) == "Organizer link not found" else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return {"ok": True, **result}
 
 

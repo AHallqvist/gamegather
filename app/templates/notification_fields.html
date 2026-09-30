@@ -12,6 +12,11 @@
          aria-describedby="notification-instructions notification-error">
 </label>
 <p id="notification-instructions" class="muted" data-notification-instructions></p>
+{% for method in notification_methods %}
+  {% if method.name == "telegram" %}
+    <p data-telegram-link hidden><a href="https://t.me/{{ request.app.state.telegram_bot_username }}" target="_blank" rel="noopener noreferrer">Open the GameGather Telegram bot</a></p>
+  {% endif %}
+{% endfor %}
 <p id="notification-error" role="alert" data-notification-error hidden></p>
 <noscript>
   {% for method in notification_methods %}

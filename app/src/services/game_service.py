@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from src.database import get_connection
@@ -150,6 +150,14 @@ def count_active_players(game_id: int) -> int:
 def set_game_status(game_id: int, status: str) -> None:
     """Update the state of a game."""
     with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        game = conn.execute("SELECT status FROM games WHERE id = ?", (game_id,)).fetchone()
+        if not game:
+            raise ValueError("Game not found")
+        if game["status"] == "started":
+            raise ValueError("Game has started; status changes are locked")
+        if status == "started":
+            raise ValueError("Use the organizer start action to start the game")
         conn.execute(
             "UPDATE games SET status = ?, updated_at = ? WHERE id = ?",
             (status, datetime.utcnow().isoformat(), game_id),
@@ -166,6 +174,7 @@ def create_registration(
     """Add a registration to an open game."""
     notification_target = validate_notification_target(notification_method, notification_target)
     with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         game = conn.execute(
             "SELECT * FROM games WHERE id = ?",
             (game_id,),
@@ -215,6 +224,7 @@ def create_registration(
 def remove_registration(registration_id: int) -> None:
     """Remove a registration while the game is still open."""
     with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         registration = conn.execute(
             """
             SELECT r.id, g.status
@@ -236,6 +246,7 @@ def remove_registration(registration_id: int) -> None:
 def start_gathering(organizer_token: str) -> dict[str, Any]:
     """Transition the organizer's game into gathering and queue notifications."""
     with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         game = conn.execute(
             "SELECT * FROM games WHERE organizer_token = ?",
             (organizer_token,),
@@ -273,6 +284,39 @@ def start_gathering(organizer_token: str) -> dict[str, Any]:
     return {"status": "gathering"}
 
 
+def start_game(organizer_token: str) -> dict[str, Any]:
+    """Finalize gathering and atomically notify only unanswered registrations."""
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        game = conn.execute(
+            "SELECT id, status FROM games WHERE organizer_token = ?",
+            (organizer_token,),
+        ).fetchone()
+        if not game:
+            raise ValueError("Organizer link not found")
+        if game["status"] != "gathering":
+            raise ValueError("Only a gathering game can be started")
+        registrations = conn.execute(
+            "SELECT * FROM registrations WHERE game_id = ? AND attendance_response IS NULL",
+            (game["id"],),
+        ).fetchall()
+        conn.execute(
+            "UPDATE games SET status = 'started', updated_at = ? WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(), game["id"]),
+        )
+        for registration in registrations:
+            queue_notification(
+                game_id=game["id"],
+                recipient_role="registration",
+                recipient_name=registration["display_name"],
+                notification_method=registration["notification_method"],
+                notification_target=registration["notification_target"],
+                event_type="game_started",
+                connection=conn,
+            )
+    return {"status": "started"}
+
+
 def get_attendance_registration(attendance_token: str) -> dict[str, Any] | None:
     """Fetch the attendance page data using its private response token."""
     with get_connection() as conn:
@@ -292,6 +336,7 @@ def get_attendance_registration(attendance_token: str) -> dict[str, Any] | None:
 def record_attendance(attendance_token: str, response: str) -> None:
     """Store a registration's attendance response using its private token."""
     with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         registration = conn.execute(
             """
             SELECT r.id, g.status

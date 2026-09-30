@@ -27,6 +27,12 @@ def send_sms_notification(item: Any) -> None:
     send(item)
 
 
+def send_telegram_notification(item: Any) -> None:
+    from src.services.telegram_service import send_telegram_notification as send
+
+    send(item)
+
+
 @dataclass(frozen=True)
 class NotificationMethod:
     name: str
@@ -70,6 +76,14 @@ METHODS = {
                      "For other numbers, choose email or Discord if available.",
         sender=send_sms_notification,
     ),
+    "telegram": NotificationMethod(
+        name="telegram", label="Telegram", flag="TELEGRAM_ENABLED",
+        required_variables=("TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_USERNAME"),
+        target_label="Telegram private chat ID",
+        instructions="Open the GameGather Telegram bot and press Start. "
+                     "Copy the private chat ID from its reply and paste it here.",
+        sender=send_telegram_notification,
+    ),
 }
 
 
@@ -97,6 +111,10 @@ def validate_notification_target(name: str, target: str) -> str:
         from src.services.sms_service import validate_swedish_mobile
 
         return validate_swedish_mobile(target)
+    if name == "telegram":
+        from src.services.telegram_service import validate_chat_id
+
+        return validate_chat_id(target)
     return target
 
 
