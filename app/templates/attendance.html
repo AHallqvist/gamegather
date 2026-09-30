@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Attendance · {{ game_title }}{% endblock %}
+{% block content %}
+  <section class="form-panel">
+    <p class="eyebrow">Attendance request</p>
+    <h1>{{ game_title }}</h1>
+    <p>Hi {{ display_name }}, please let the organizer know whether you can attend.</p>
+
+    {% if saved %}
+      <p class="notice success">Your response has been saved: <strong>{{ attendance_response }}</strong>.</p>
+    {% elif attendance_response %}
+      <p class="notice">Your current response is <strong>{{ attendance_response }}</strong>. You can change it below.</p>
+    {% endif %}
+
+    {% if game_status == "gathering" %}
+      <form action="/attendance/{{ attendance_token }}" method="post" class="inline-form">
+        <button name="response" value="coming">Coming</button>
+        <button name="response" value="declined" class="secondary">Decline</button>
+      </form>
+    {% else %}
+      <p class="notice">This game is not currently collecting attendance responses.</p>
+    {% endif %}
+  </section>
+{% endblock %}

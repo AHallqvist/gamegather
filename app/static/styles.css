@@ -29,6 +29,8 @@ h2 { margin: 0 0 .5rem; font-size: 1.3rem; }
 p { margin-top: .4rem; }
 .eyebrow { margin: 0 0 .4rem; color: #52616b; font-size: .78rem; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
 .muted { color: #52616b; }
+[data-notification-error] { color: #a01818; margin: 0; }
+input[aria-invalid="true"] { border-color: #a01818; }
 .card, .form-panel { margin: 1rem 0; padding: 1.35rem; background: #fff; border: 1px solid #dfe5e9; border-radius: 14px; box-shadow: 0 5px 20px rgb(22 34 44 / 4%); }
 .game-card { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 .game-card p { margin-bottom: 0; color: #52616b; }

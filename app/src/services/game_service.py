@@ -4,6 +4,7 @@ from typing import Any
 
 from src.database import get_connection
 from src.services.notification_service import queue_notification
+from src.services.notification_methods import validate_notification_target
 
 
 def create_game(
@@ -14,6 +15,9 @@ def create_game(
     organizer_notification_target: str,
 ) -> dict[str, Any]:
     """Create a new game and queue an organizer confirmation notification."""
+    organizer_notification_target = validate_notification_target(
+        organizer_notification_method, organizer_notification_target,
+    )
     organizer_token = secrets.token_urlsafe(24)
     created_at = datetime.utcnow().isoformat()
 
@@ -160,6 +164,7 @@ def create_registration(
     notification_target: str,
 ) -> dict[str, Any]:
     """Add a registration to an open game."""
+    notification_target = validate_notification_target(notification_method, notification_target)
     with get_connection() as conn:
         game = conn.execute(
             "SELECT * FROM games WHERE id = ?",
@@ -177,11 +182,18 @@ def create_registration(
                 display_name,
                 notification_method,
                 notification_target,
+                attendance_token,
                 attendance_response,
                 responded_at
-            ) VALUES (?, ?, ?, ?, NULL, NULL)
+            ) VALUES (?, ?, ?, ?, ?, NULL, NULL)
             """,
-            (game_id, display_name, notification_method, notification_target),
+            (
+                game_id,
+                display_name,
+                notification_method,
+                notification_target,
+                secrets.token_urlsafe(32),
+            ),
         )
         conn.commit()
         registration_id = cursor.lastrowid
@@ -252,34 +264,50 @@ def start_gathering(organizer_token: str) -> dict[str, Any]:
             game_id=game_id,
             recipient_role="registration",
             recipient_name=registration["display_name"],
-            notification_method=registration["notification_method"],
-            notification_target=registration["notification_target"],
-            event_type="gathering_started",
-        )
+                notification_method=registration["notification_method"],
+                notification_target=registration["notification_target"],
+                event_type="gathering_started",
+                action_token=registration["attendance_token"],
+            )
 
     return {"status": "gathering"}
 
 
-def record_attendance(registration_id: int, response: str) -> int:
-    """Store a registration's attendance response."""
+def get_attendance_registration(attendance_token: str) -> dict[str, Any] | None:
+    """Fetch the attendance page data using its private response token."""
     with get_connection() as conn:
         registration = conn.execute(
             """
-            SELECT r.id, r.game_id, g.status
+            SELECT r.display_name, r.attendance_response, r.responded_at,
+                   g.id AS game_id, g.title AS game_title, g.status AS game_status
             FROM registrations r
             JOIN games g ON g.id = r.game_id
-            WHERE r.id = ?
+            WHERE r.attendance_token = ?
             """,
-            (registration_id,),
+            (attendance_token,),
+        ).fetchone()
+        return dict(registration) if registration else None
+
+
+def record_attendance(attendance_token: str, response: str) -> None:
+    """Store a registration's attendance response using its private token."""
+    with get_connection() as conn:
+        registration = conn.execute(
+            """
+            SELECT r.id, g.status
+            FROM registrations r
+            JOIN games g ON g.id = r.game_id
+            WHERE r.attendance_token = ?
+            """,
+            (attendance_token,),
         ).fetchone()
         if not registration:
-            raise ValueError("Registration not found")
+            raise ValueError("Attendance link not found")
         if registration["status"] != "gathering":
             raise ValueError("Attendance is not being collected for this game")
 
         conn.execute(
             "UPDATE registrations SET attendance_response = ?, responded_at = ? WHERE id = ?",
-            (response, datetime.utcnow().isoformat(), registration_id),
+            (response, datetime.utcnow().isoformat(), registration["id"]),
         )
         conn.commit()
-        return int(registration["game_id"])

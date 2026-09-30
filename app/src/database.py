@@ -37,6 +37,7 @@ def init_db() -> None:
                 display_name TEXT NOT NULL,
                 notification_method TEXT NOT NULL,
                 notification_target TEXT NOT NULL,
+                attendance_token TEXT NOT NULL UNIQUE,
                 attendance_response TEXT CHECK(attendance_response IN ('coming', 'declined')),
                 responded_at TEXT,
                 FOREIGN KEY (game_id) REFERENCES games(id)
@@ -50,7 +51,11 @@ def init_db() -> None:
                 notification_method TEXT NOT NULL,
                 notification_target TEXT NOT NULL,
                 event_type TEXT NOT NULL,
+                action_token TEXT,
                 status TEXT NOT NULL DEFAULT 'queued',
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at TEXT,
+                last_error TEXT,
                 sent_at TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (game_id) REFERENCES games(id)

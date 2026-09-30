@@ -1,7 +1,10 @@
+import asyncio
 import os
+import logging
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -13,6 +16,7 @@ from src.database import init_db
 from src.services.game_service import (
     create_game,
     create_registration,
+    get_attendance_registration,
     get_game,
     get_organizer_game,
     record_attendance,
@@ -20,11 +24,49 @@ from src.services.game_service import (
     start_gathering,
     list_open_games,
 )
+from src.services.notification_service import process_notifications
+from src.services.notification_methods import enabled_methods, validate_notification_configuration
 
 
-init_db()
+logger = logging.getLogger(__name__)
+NOTIFICATION_POLL_SECONDS = 10
 
-app = FastAPI(title="GameGather")
+
+async def notification_worker() -> None:
+    """Poll the notification queue and send available notifications."""
+    while True:
+        try:
+            await asyncio.to_thread(process_notifications)
+        except Exception:
+            logger.exception("Notification queue processing failed")
+        await asyncio.sleep(NOTIFICATION_POLL_SECONDS)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    validate_notification_configuration()
+    init_db()
+    discord_enabled = any(method.name == "discord" for method in enabled_methods())
+    if discord_enabled:
+        from src.services.discord_service import start_discord_service
+
+        await start_discord_service()
+    worker = asyncio.create_task(notification_worker())
+    try:
+        yield
+    finally:
+        worker.cancel()
+        try:
+            await worker
+        except asyncio.CancelledError:
+            pass
+        if discord_enabled:
+            from src.services.discord_service import stop_discord_service
+
+            await stop_discord_service()
+
+
+app = FastAPI(title="GameGather", lifespan=lifespan)
 APP_DIR = Path(__file__).resolve().parent.parent
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
@@ -42,10 +84,6 @@ class CreateRegistrationRequest(BaseModel):
     display_name: str
     notification_method: str
     notification_target: str
-
-
-class AttendanceRequest(BaseModel):
-    response: str
 
 
 def page_error(request: Request, status_code: int, message: str) -> HTMLResponse:
@@ -68,7 +106,10 @@ def home_page(request: Request) -> HTMLResponse:
 
 @app.get("/games/new", response_class=HTMLResponse)
 def new_game_page(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request=request, name="new_game.html")
+    return templates.TemplateResponse(
+        request=request, name="new_game.html",
+        context={"notification_methods": enabled_methods()},
+    )
 
 
 @app.post("/games/new")
@@ -91,7 +132,7 @@ async def create_game_form(request: Request) -> Response:
             title=title,
             min_players=min_players,
             organizer_name=organizer_name,
-            organizer_notification_method=str(form.get("notification_method", "email")),
+            organizer_notification_method=str(form.get("notification_method", "")),
             organizer_notification_target=notification_target,
         )
     except ValueError as exc:
@@ -139,7 +180,10 @@ def public_game_page(request: Request, game_id: int) -> Any:
     return templates.TemplateResponse(
         request=request,
         name="game.html",
-        context={**result, "registration_count": len(result["registrations"])},
+        context={
+            **result, "registration_count": len(result["registrations"]),
+            "notification_methods": enabled_methods(),
+        },
     )
 
 
@@ -154,7 +198,7 @@ async def create_registration_form(request: Request, game_id: int) -> Response:
         create_registration(
             game_id=game_id,
             display_name=display_name,
-            notification_method=str(form.get("notification_method", "email")),
+            notification_method=str(form.get("notification_method", "")),
             notification_target=notification_target,
         )
     except ValueError as exc:
@@ -174,13 +218,16 @@ def get_all_open_games() -> dict[str, Any]:
 
 @app.post("/games")
 def create_game_endpoint(payload: CreateGameRequest) -> dict[str, Any]:
-    game = create_game(
-        title=payload.title,
-        min_players=payload.min_players,
-        organizer_name=payload.organizer_name,
-        organizer_notification_method=payload.organizer_notification_method,
-        organizer_notification_target=payload.organizer_notification_target,
-    )
+    try:
+        game = create_game(
+            title=payload.title,
+            min_players=payload.min_players,
+            organizer_name=payload.organizer_name,
+            organizer_notification_method=payload.organizer_notification_method,
+            organizer_notification_target=payload.organizer_notification_target,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "game": game}
 
 
@@ -225,30 +272,38 @@ def start_gathering_endpoint(organizer_token: str) -> dict[str, Any]:
     return {"ok": True, **result}
 
 
-@app.post("/registrations/{registration_id}/attendance")
-def submit_attendance(registration_id: int, payload: AttendanceRequest) -> dict[str, Any]:
-    if payload.response not in {"coming", "declined"}:
-        raise HTTPException(status_code=400, detail="response must be 'coming' or 'declined'")
+@app.get("/attendance/{attendance_token}", response_class=HTMLResponse)
+def attendance_page(
+    request: Request,
+    attendance_token: str,
+    saved: bool = False,
+) -> Response:
+    registration = get_attendance_registration(attendance_token)
+    if not registration:
+        return page_error(request, 404, "Attendance link not found.")
+    return templates.TemplateResponse(
+        request=request,
+        name="attendance.html",
+        context={
+            **registration,
+            "attendance_token": attendance_token,
+            "saved": saved,
+        },
+    )
 
-    try:
-        record_attendance(registration_id, payload.response)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    return {"ok": True, "response": payload.response}
-
-
-@app.post("/registrations/{registration_id}/attendance-form")
-async def attendance_form(request: Request, registration_id: int) -> Response:
+@app.post("/attendance/{attendance_token}")
+async def attendance_form(request: Request, attendance_token: str) -> Response:
     form = await request.form()
     response = str(form.get("response", ""))
     if response not in {"coming", "declined"}:
         return page_error(request, 400, "Choose coming or declined.")
     try:
-        game_id = record_attendance(registration_id, response)
+        record_attendance(attendance_token, response)
     except ValueError as exc:
-        return page_error(request, 404, str(exc))
-    return RedirectResponse(url=f"/games/{game_id}", status_code=303)
+        status_code = 404 if str(exc) == "Attendance link not found" else 400
+        return page_error(request, status_code, str(exc))
+    return RedirectResponse(url=f"/attendance/{quote(attendance_token)}?saved=true", status_code=303)
 
 
 if __name__ == "__main__":

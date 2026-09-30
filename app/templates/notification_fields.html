@@ -1,0 +1,20 @@
+<label>Notification method
+  <select name="notification_method" required data-notification-method>
+    {% for method in notification_methods %}
+      <option value="{{ method.name }}" data-label="{{ method.target_label }}"
+              data-instructions="{{ method.instructions }}">{{ method.label }}</option>
+    {% endfor %}
+  </select>
+</label>
+<label>
+  <span data-notification-label>Notification address or ID</span>
+  <input name="notification_target" type="text" required data-notification-target
+         aria-describedby="notification-instructions notification-error">
+</label>
+<p id="notification-instructions" class="muted" data-notification-instructions></p>
+<p id="notification-error" role="alert" data-notification-error hidden></p>
+<noscript>
+  {% for method in notification_methods %}
+    <p>{{ method.target_label }}: {{ method.instructions }}</p>
+  {% endfor %}
+</noscript>
