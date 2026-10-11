@@ -47,6 +47,7 @@ async def notification_worker() -> None:
 async def lifespan(_: FastAPI):
     validate_notification_configuration()
     app.state.telegram_bot_username = os.environ.get("TELEGRAM_BOT_USERNAME", "gamegather_notifications_bot")
+    app.state.discord_invite_url = os.environ.get("DISCORD_INVITE_URL", "").strip()
     init_db()
     methods = {method.name for method in enabled_methods()}
     async with AsyncExitStack() as services:

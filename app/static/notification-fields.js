@@ -27,6 +27,8 @@ document.querySelectorAll("form").forEach((form) => {
     target.placeholder = method.value === "sms" ? "+46701234567" : method.value === "email" ? "you@example.com" : option.dataset.label;
     const telegramLink = form.querySelector("[data-telegram-link]");
     if (telegramLink) telegramLink.hidden = method.value !== "telegram";
+    const discordLink = form.querySelector("[data-discord-link]");
+    if (discordLink) discordLink.hidden = method.value !== "discord";
     target.autocomplete = method.value === "email" ? "email" : method.value === "sms" ? "tel" : "off";
     if (method.value === "sms") {
       target.pattern = "\\+467[02369][0-9]{7}";

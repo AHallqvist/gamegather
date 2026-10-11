@@ -15,6 +15,8 @@
 {% for method in notification_methods %}
   {% if method.name == "telegram" %}
     <p data-telegram-link hidden><a href="https://t.me/{{ request.app.state.telegram_bot_username }}" target="_blank" rel="noopener noreferrer">Open the GameGather Telegram bot</a></p>
+  {% elif method.name == "discord" and request.app.state.discord_invite_url %}
+    <p data-discord-link hidden><a href="{{ request.app.state.discord_invite_url }}" target="_blank" rel="noopener noreferrer">Join the GameGather Discord server</a></p>
   {% endif %}
 {% endfor %}
 <p id="notification-error" role="alert" data-notification-error hidden></p>
