@@ -10,6 +10,19 @@
     <span>registered · {{ game.min_players }} needed to gather</span>
   </section>
 
+  {% if game.status == "open" %}
+    <section class="form-panel">
+      <h2>Add an in-person player</h2>
+      <p class="muted">Adding a player confirms they are coming and counts toward the gathering minimum. No contact details are needed and no notifications will be sent to them.</p>
+      <form action="/organizer/games/{{ organizer_token }}/register-form" method="post" class="stack">
+        <label>Player name
+          <input name="display_name" required maxlength="100">
+        </label>
+        <button type="submit">Add player · Confirm coming</button>
+      </form>
+    </section>
+  {% endif %}
+
   {% if minimum_reached and game.status == "open" %}
     <section class="notice success">
       <p>You have enough interest to start gathering.</p>
@@ -39,7 +52,9 @@
         {% for registration in registrations %}
           <li>
             <span>{{ registration.display_name }}</span>
-            {% if game.status in ["gathering", "started"] %}
+            {% if registration.notification_method == "none" %}
+              <span class="muted">In-person · Coming</span>
+            {% elif game.status in ["gathering", "started"] %}
               <span class="muted">{{ registration.attendance_response or ("No response" if game.status == "started" else "Awaiting response") }}</span>
             {% endif %}
           </li>

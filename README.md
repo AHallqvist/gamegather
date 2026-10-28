@@ -62,6 +62,17 @@ Telegram sends organizer confirmations, minimum-player alerts, and private
 attendance links through the existing queue and retry policy. Set `BASE_URL`
 to an address recipients can reach.
 
+## In-person players
+
+While a game is open, use **Add an in-person player** on its private organizer
+page to register someone by name only. Adding them immediately confirms they
+are coming and counts toward the minimum needed to start gathering. They receive
+no gathering or game-start notifications.
+
+API clients can POST `{"display_name": "Player name"}` to
+`/organizer/games/{organizer_token}/register`. The private organizer token is
+required; public registration still requires notification details.
+
 ## Purpose
 
 This project implements the first slice of the product described in `design.md`:
