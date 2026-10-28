@@ -15,6 +15,7 @@ from starlette.templating import Jinja2Templates
 from src.database import init_db
 from src.services.game_service import (
     create_game,
+    create_organizer_registration,
     create_registration,
     get_attendance_registration,
     get_game,
@@ -93,6 +94,10 @@ class CreateRegistrationRequest(BaseModel):
     notification_target: str
 
 
+class CreateOrganizerRegistrationRequest(BaseModel):
+    display_name: str
+
+
 def page_error(request: Request, status_code: int, message: str) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request,
@@ -163,6 +168,17 @@ def organizer_game_page(request: Request, organizer_token: str) -> HTMLResponse:
             "organizer_token": organizer_token,
         },
     )
+
+
+@app.post("/organizer/games/{organizer_token}/register-form")
+async def create_organizer_registration_form(request: Request, organizer_token: str) -> Response:
+    form = await request.form()
+    try:
+        create_organizer_registration(organizer_token, str(form.get("display_name", "")))
+    except ValueError as exc:
+        status_code = 404 if str(exc) == "Organizer link not found" else 400
+        return page_error(request, status_code, str(exc))
+    return RedirectResponse(url=f"/organizer/games/{quote(organizer_token)}", status_code=303)
 
 
 @app.post("/organizer/games/{organizer_token}/gather-form")
@@ -275,6 +291,19 @@ def unregister_for_game(registration_id: int) -> dict[str, bool]:
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     return {"ok": True}
+
+
+@app.post("/organizer/games/{organizer_token}/register")
+def create_organizer_registration_endpoint(
+    organizer_token: str,
+    payload: CreateOrganizerRegistrationRequest,
+) -> dict[str, Any]:
+    try:
+        registration = create_organizer_registration(organizer_token, payload.display_name)
+    except ValueError as exc:
+        status_code = 404 if str(exc) == "Organizer link not found" else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return {"ok": True, "registration": registration}
 
 
 @app.post("/organizer/games/{organizer_token}/gather")

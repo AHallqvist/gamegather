@@ -1,4 +1,5 @@
 import secrets
+import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
@@ -184,41 +185,69 @@ def create_registration(
         if game["status"] != "open":
             raise ValueError("Registration is closed for this game")
 
-        cursor = conn.execute(
-            """
-            INSERT INTO registrations (
-                game_id,
-                display_name,
-                notification_method,
-                notification_target,
-                attendance_token,
-                attendance_response,
-                responded_at
-            ) VALUES (?, ?, ?, ?, ?, NULL, NULL)
-            """,
-            (
-                game_id,
-                display_name,
-                notification_method,
-                notification_target,
-                secrets.token_urlsafe(32),
-            ),
+        return _insert_registration(
+            conn, game, display_name, notification_method, notification_target,
         )
-        conn.commit()
-        registration_id = cursor.lastrowid
 
-    current_count = count_active_players(game_id)
+
+def create_organizer_registration(
+    organizer_token: str,
+    display_name: str,
+) -> dict[str, Any]:
+    """Add an in-person player with attendance confirmed by the organizer."""
+    display_name = display_name.strip()
+    if not display_name:
+        raise ValueError("Please provide the player's name.")
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        game = conn.execute(
+            "SELECT * FROM games WHERE organizer_token = ?",
+            (organizer_token,),
+        ).fetchone()
+        if not game:
+            raise ValueError("Organizer link not found")
+        if game["status"] != "open":
+            raise ValueError("Registration is closed for this game")
+        return _insert_registration(conn, game, display_name, "none", "", "coming")
+
+
+def _insert_registration(
+    conn: sqlite3.Connection,
+    game: sqlite3.Row,
+    display_name: str,
+    notification_method: str,
+    notification_target: str,
+    attendance_response: str | None = None,
+) -> dict[str, Any]:
+    """Insert a player and any threshold notification in the caller's transaction."""
+    cursor = conn.execute(
+        """
+        INSERT INTO registrations (
+            game_id, display_name, notification_method, notification_target,
+            attendance_token, attendance_response, responded_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            game["id"], display_name, notification_method, notification_target,
+            secrets.token_urlsafe(32), attendance_response,
+            datetime.now(timezone.utc).isoformat() if attendance_response else None,
+        ),
+    )
+    current_count = conn.execute(
+        "SELECT COUNT(*) FROM registrations WHERE game_id = ?", (game["id"],),
+    ).fetchone()[0]
     if current_count == int(game["min_players"]):
         queue_notification(
-            game_id=game_id,
+            game_id=game["id"],
             recipient_role="organizer",
             recipient_name=game["organizer_name"],
             notification_method=game["organizer_notification_method"],
             notification_target=game["organizer_notification_target"],
             event_type="minimum_players_reached",
+            connection=conn,
         )
 
-    return {"id": registration_id}
+    return {"id": cursor.lastrowid}
 
 
 def remove_registration(registration_id: int) -> None:
@@ -271,15 +300,17 @@ def start_gathering(organizer_token: str) -> dict[str, Any]:
         conn.commit()
 
     for registration in registrations:
+        if registration["notification_method"] == "none":
+            continue
         queue_notification(
             game_id=game_id,
             recipient_role="registration",
             recipient_name=registration["display_name"],
-                notification_method=registration["notification_method"],
-                notification_target=registration["notification_target"],
-                event_type="gathering_started",
-                action_token=registration["attendance_token"],
-            )
+            notification_method=registration["notification_method"],
+            notification_target=registration["notification_target"],
+            event_type="gathering_started",
+            action_token=registration["attendance_token"],
+        )
 
     return {"status": "gathering"}
 
@@ -297,7 +328,10 @@ def start_game(organizer_token: str) -> dict[str, Any]:
         if game["status"] != "gathering":
             raise ValueError("Only a gathering game can be started")
         registrations = conn.execute(
-            "SELECT * FROM registrations WHERE game_id = ? AND attendance_response IS NULL",
+            """
+            SELECT * FROM registrations
+            WHERE game_id = ? AND attendance_response IS NULL AND notification_method != 'none'
+            """,
             (game["id"],),
         ).fetchall()
         conn.execute(
