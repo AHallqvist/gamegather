@@ -1,162 +1,104 @@
 # GameGather MVP Backlog
 
-This file captures the recommended first implementation plan for the project described in design.md.
+## Product goal
 
-## Product Goal
+Help organizers collect game interest, start gathering when enough players have
+registered, collect attendance responses, and explicitly start the game.
+**Interest is not the same as commitment.**
 
-Build a small app that lets an organizer create a game proposal, let players register interest, reach a minimum threshold, start gathering, and collect attendance responses.
+This backlog separates implemented features from remaining work and optional
+proposals. It replaces the original build sequence; proposed features below are
+not approved requirements. See `design.md` for the current design and `README.md`
+for usage and configuration.
 
-## Core Concept
+## Implemented
 
-Interest is not the same as commitment.
+- [x] FastAPI API and server-rendered, mobile-friendly web pages.
+- [x] SQLite tables for games, registrations, and queued notifications.
+- [x] Create an immediately open game with public and private organizer URLs.
+- [x] List open games and view individual public game pages and player counts.
+- [x] Register interest with a name and one enabled notification method.
+- [x] Add an in-person player from the private organizer page, immediately confirmed
+  as coming and without contact details or notifications.
+- [x] Alert the organizer when registration reaches the minimum, without changing
+  the game state.
+- [x] Organizer starts gathering once the registration minimum is met.
+- [x] Private attendance links support coming/declined responses and changes during
+  gathering; the organizer page displays individual responses when loaded.
+- [x] Organizer explicitly starts a gathering game regardless of confirmed count,
+  locking changes and notifying only unanswered players with contact details.
+- [x] Separate queued notification intent from provider delivery, with an in-app
+  worker, retries, interrupted-send recovery, and failure tracking.
+- [x] Email (SMTP), Discord, SMS (Vonage, Swedish mobile numbers), and Telegram.
+- [x] Environment-based provider selection shared by forms, API, and delivery.
+- [x] Docker Compose deployment and SQLite volume configuration via `.env.example`.
+- [x] Health endpoint and automated service, route, and provider tests.
 
-A player can show interest in a game, but the organizer should only begin a gather phase once enough interest has been collected.
+The supported lifecycle is **`open` → `gathering` → `started`**. There are no
+separate organizer/player account tables, stored minimum-reached state, draft
+workflow, or close/cancel workflow.
 
-## MVP Scope
+Registration deletion exists only as an API operation for open games, with the
+authorization gap described below. It is not a completed player-facing leave
+feature. Declining during gathering retains the registration.
 
-### In Scope
-- Create a game proposal
-- View public game page
-- Register interest
-- Leave a game
-- See live player count
-- Start gathering
-- Record attendance responses
-- Send basic notifications
-- Keep notifications separate from game logic
+## Remaining work
 
-### Out of Scope for v1
-- Role assignment
-- Script management
-- Recurring schedules
-- Social features
-- Full provider coverage beyond a first provider
-- Convention/event management
+### Security hardening — priority
 
----
+- [ ] Require authorization for `DELETE /registrations/{registration_id}`. It currently accepts a numeric registration ID without a private token or ownership check. Require a private registration token or an organizer token authorized for that registration's game, while preserving the open-game-only removal restriction. Add regression tests rejecting missing/invalid credentials and attempts to delete another registration or another organizer's game registration, and covering authorized removal and rejection after gathering starts.
 
-## Recommended Build Order
+### Reliability and deployment follow-ups
 
-### Phase 1: Core Domain and Data Model
-- Create database schema
-- Add organizer table
-- Add player table
-- Add game table
-- Add registration table
-- Add attendance response table
-- Add notification queue table
-- Define game states:
-  - draft
-  - open
-  - minimum_reached
-  - gathering
-  - started
-  - closed
+These are recommended follow-ups, not features already provided by Compose:
 
-### Phase 2: Organizer Workflow
-- Add create game endpoint
-- Add edit game endpoint
-- View a single game
-- View active players for a game
-- Start a game gathering
-- Close or finalize a game
+- [ ] Make game creation and gathering transitions atomic with their notification
+  queue inserts, following the existing registration and game-start patterns. Test
+  rollback when queuing fails so a successful state change cannot silently lose
+  its delivery intent.
+- [ ] Document and validate a SQLite backup/restore procedure, including recovery
+  of game data and pending notifications.
+- [ ] Document a production HTTPS/reverse-proxy setup and verify that `BASE_URL`
+  generates reachable links. Traefik and TLS are not currently included.
+- [ ] Make test setup reproducible, including the test-only `httpx` dependency
+  needed by FastAPI's `TestClient`, which is not listed in `app/requirements.txt`.
 
-### Phase 3: Player Workflow
-- Create player record
-- Register for a game
-- Leave a game
-- View current player count
-- Respond to gathering request
+## Optional proposals — decisions required
 
-### Phase 4: Notifications
-- Emit events when important milestones happen
-- Queue notifications for active players
-- Keep provider logic separate from game logic
-- Start with one provider such as email or Discord
+These ideas are retained from the original design or current workflow gaps. They
+are not commitments and should be scoped before implementation.
 
-### Phase 5: Deployment and Hardening
-- Containerize the app
-- Use SQLite in a Docker volume
-- Add Traefik reverse proxy
-- Add TLS and HTTPS
-- Add health check route
-- Add simple backup strategy
+### Player and organizer workflow
 
----
+- Secure website withdrawal while a game is open, after deletion authorization is
+  implemented; decide whether players, organizers, or both can remove a registration.
+- Game editing, cancellation/closure, drafts, or reopening. Define state and
+  notification semantics rather than assuming these statuses already exist.
+- QR code sharing and richer game details: description, location, duration,
+  registration notes, ideal count, maximum count, or waitlists.
+- Automatically refreshed attendance and aggregate coming/declined/unanswered counts.
 
-## Suggested User Stories
+### Notifications and access
 
-### Organizer
-1. As an organizer, I want to create a game proposal so that I can list the event.
-2. As an organizer, I want to set minimum, ideal, and maximum player counts so that I can know when a game is viable.
-3. As an organizer, I want to see the list of interested players so that I can manage the event.
-4. As an organizer, I want to start gathering so that I can prompt players for attendance.
-5. As an organizer, I want to see who is coming so that I can decide if the game can begin.
+- Contact ownership verification and optional reusable account/contact records.
+- Rich Discord interactions or Web Push/PWA notifications.
+- Delivery diagnostics or an operator workflow for failed notifications.
 
-### Player
-1. As a player, I want to join a game so that I can show interest.
-2. As a player, I want to leave a game so that I can update my availability.
-3. As a player, I want to see current counts so that I know how close the game is to being viable.
-4. As a player, I want to respond to gathering requests so that the organizer knows if I can attend.
+### Larger-scale coordination
 
----
+- Convention/event management, venue maps, table assignments, and capacity tracking.
+- Calendars, recurring games, attendance statistics, and multi-event support.
+- Database migrations, PostgreSQL, external workers, or an event bus only when
+  justified by actual operational needs; none is required by the current MVP model.
 
-## Technical Recommendation
+## Outside the current product scope
 
-### Database
-- SQLite for the MVP
-- PostgreSQL later if needed
+- Running BOTC games, assigning roles, or managing scripts.
+- Social-network features.
 
-### Deployment
-- Docker Compose
-- Single app container
-- SQLite volume for persistence
-- Traefik as reverse proxy
-- HTTPS via Let’s Encrypt
+## Validation for future changes
 
-### App Architecture
-- FastAPI for the API layer
-- SQLite for persistence
-- service layer for domain logic
-- notification queue separated from direct sending logic
-
----
-
-## Suggested First Milestone
-
-The first milestone should be:
-
-- create game
-- add player registration
-- count active players
-- mark a game as gathering
-- record attendance responses
-- expose a summary route for the organizer
-
-This is the smallest meaningful version of the product and aligns directly with the design concept.
-
----
-
-## Suggested Next Task List
-
-1. Set up database schema
-2. Create organizer and player records
-3. Create game record and public URL
-4. Add join/leave registration logic
-5. Add active-player counting
-6. Add game state transitions
-7. Add gather event and notifications
-8. Add attendance response handling
-9. Add organizer summary endpoint
-10. Containerize app and deploy with SQLite volume
-
----
-
-## Notes for Class Work
-
-This file is intentionally written as a practical project backlog so it is easy to convert into:
-- assignment tasks
-- user stories
-- implementation milestones
-- testing goals
-- progress checkpoints
+Add automated regression tests for lifecycle restrictions, authorization,
+registration behavior, and notification targeting. Use temporary databases and
+mocked delivery rather than real player data or provider sends. Test instructions
+and coding conventions live in `AGENTS.md`.
