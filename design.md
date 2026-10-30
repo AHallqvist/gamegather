@@ -1,711 +1,223 @@
-# Pick-Up Game Coordinator
+# GameGather Design
 
-## Overview
+## Purpose and scope
 
-Pick-Up Game Coordinator is a web application designed to help organize spontaneous and semi-spontaneous social games, with an initial focus on **Blood on the Clocktower (BOTC)**.
+GameGather helps organize spontaneous and semi-spontaneous social games, initially
+focused on **Blood on the Clocktower (BOTC)**. The workflow also fits board games,
+RPG one-shots, and other group activities.
 
-The system allows players to express interest in a game, receive notifications when enough players are available, and coordinate gathering with minimal organizer effort.
+The core principle is **interest is not the same as commitment**: collect interest,
+let the organizer decide when to gather, then collect attendance responses.
+Players do not need an account or an installed app.
 
-While BOTC is the primary use case, the design should remain generic enough to support other group activities in the future.
+This document describes the current implementation. The final section preserves
+future ideas from the original proposal; those are not implemented or committed
+requirements. See `README.md` for setup and `MVP_BACKLOG.md` for remaining work.
 
-Examples:
+## Current user workflow
 
-- Blood on the Clocktower
-- Board games
-- RPG one-shots
-- Trading card game drafts
-- Social deduction games
+### Create a proposal
 
----
+The organizer provides a title, minimum player count, name, and one enabled
+notification method and target. The game is created immediately as `open`.
 
-# Goals
+Creation returns a public game URL and a private organizer URL. The website
+redirects to the organizer page, and an organizer confirmation containing both
+links is queued. Anyone holding the organizer link can manage that game; there
+are no accounts or login sessions. QR code generation is not implemented.
 
-## Primary Goals
+### Register interest
 
-- Make it easy to propose a game.
-- Allow players to register interest quickly.
-- Notify players when a game becomes viable.
-- Allow organizers to initiate a "gathering phase".
-- Collect attendance confirmations.
-- Support multiple notification methods.
+The home page lists open games. Players visit a public game page and register a
+display name plus one enabled notification method and target. Website submissions
+redirect back to the game page; there is no player registration-confirmation
+notification. Registrations are specific to a game, not reusable player accounts.
 
-## Secondary Goals
+An organizer can also add an in-person player by name only while the game is open.
+These registrations are immediately marked `coming`, count toward the minimum,
+and have no notification delivery target.
 
-- Support conventions and gaming events.
-- Avoid requiring app installation.
-- Minimize organizer workload.
-- Be extensible for additional notification channels.
+When an insertion brings the registration count exactly to the minimum, an
+organizer notification is queued. The game remains `open`: minimum reached is a
+calculated condition, not a stored state or an automatic gathering trigger.
 
-## Non-Goals (Initial Version)
+### Gather and respond
 
-- Running BOTC games.
-- Role assignment.
-- Script management.
-- Scheduling recurring events.
-- Social network functionality.
+Once the registration count meets the minimum, the organizer can select **Start
+gathering**. The game becomes `gathering`, and registration and deletion close.
+Players with notification details receive private attendance links; in-person
+players receive no notification and retain their confirmed response.
 
----
+Attendance links allow players to select `coming` or `declined` and change their
+response while gathering continues. Declining retains the registration. The
+organizer page displays each player's current response when loaded; there is no
+automatic live refresh.
 
-# Core Concept
+### Start the game
 
-The system is built around the idea that:
+The organizer explicitly selects **Start game** from a gathering game. This does
+not require a minimum number of confirmed players. The game becomes `started`,
+and attendance responses and further status changes are locked. A game-start
+notification is queued only for unanswered registrations with a delivery method;
+it contains no invitation to respond.
 
-> Interest is not the same as commitment.
-
-A player can indicate interest in a game, but the organizer should only attempt to gather players once enough interest has been collected.
-
-The process is intentionally split into multiple stages.
-
----
-
-# User Roles
-
-## Organizer
-
-Creates game proposals.
-
-Can:
-
-- Create a game
-- Edit a game
-- Start gathering
-- Close a game
-- View player status
-
-## Player
-
-Registers interest in games.
-
-Can:
-
-- Join a game
-- Leave a game
-- Configure notifications
-- Confirm attendance during gathering
-
----
-
-# User Flow
-
-## 1. Create Game Proposal
-
-Organizer creates a proposal.
-
-Example:
+## Game lifecycle and removal rules
 
 ```text
-Title:
-Trouble Brewing
-
-Minimum Players:
-8
-
-Ideal Players:
-12
-
-Maximum Players:
-15
-
-Location:
-Table 17
-
-Expected Duration:
-2.5 hours
+open → gathering → started
 ```
 
-The system generates:
+| Operation | Open | Gathering | Started |
+| --- | --- | --- | --- |
+| Public registration or organizer-added in-person player | Allowed | Blocked | Blocked |
+| API registration deletion | Allowed, but missing authorization | Blocked | Blocked |
+| Attendance response through private link | Blocked | Submit or change | Blocked |
+| Organizer starts gathering | Requires minimum registrations | Blocked | Blocked |
+| Organizer starts game | Blocked | Allowed regardless of confirmations | Blocked |
 
-- Public URL
-- QR Code
+There is no website leave/cancel button for an open game. The API endpoint
+`DELETE /registrations/{registration_id}` physically deletes an open-game
+registration, but currently requires no token or ownership check. This is a known
+security gap, not a complete self-service cancellation feature.
 
----
+`draft`, `minimum_reached`, and `closed` are not implemented workflow states.
+The database does not constrain the status strings, and the internal
+`set_game_status()` helper accepts arbitrary non-`started` statuses before a game
+starts. This does not constitute supported edit, close, cancel, or reopen flows.
 
-## 2. Player Registration
-
-Player visits the game page.
-
-They enter:
+## Current architecture
 
 ```text
-Display Name
-Notification Methods
-Optional Notes
+Browser / API client
+        ↓
+FastAPI routes and Jinja2 pages (app/src/main.py, app/templates/)
+        ↓
+Game service (app/src/services/game_service.py)
+        ↓
+SQLite: games, registrations, notifications
+        ↑
+In-process notification worker → provider delivery
 ```
 
-After registration they receive confirmation.
-
-Example:
-
-```text
-You are registered.
-
-Current Players:
-7 / 8 minimum
-```
-
----
-
-## 3. Minimum Threshold Reached
-
-When minimum player count is reached:
-
-```text
-Minimum players reached.
-```
-
-The organizer is notified.
-
-Players may optionally receive:
-
-```text
-A game you joined can now be formed.
-Waiting for organizer confirmation.
-```
-
-No gathering occurs yet.
-
-This is only informational.
-
----
-
-## 4. Organizer Starts Gathering
-
-Organizer manually presses:
-
-```text
-Start Gathering
-```
-
-This transitions the proposal into Gathering state.
-
-Notifications are sent to all registered players.
-
-Example:
-
-```text
-Blood on the Clocktower is gathering.
-
-Location:
-Table 17
-
-Please respond.
-
-[I'm Coming]
-[Can't Make It]
-```
-
----
-
-## 5. Player Response
-
-Players respond using notification links or buttons.
-
-Possible responses:
-
-```text
-Coming
-Can't Make It
-```
-
-The organizer sees a live attendance count.
-
-Example:
-
-```text
-Registered: 12
-Coming: 9
-Declined: 3
-```
-
----
-
-## 6. Final Start
-
-When sufficient players have confirmed:
-
-```text
-Ready to Start
-```
-
-The organizer gathers players and begins the game.
-
-The proposal can be marked as:
-
-```text
-Started
-```
-
-or
-
-```text
-Closed
-```
-
----
-
-# State Machine
-
-## Game States
-
-```text
-Draft
-    ↓
-
-Open
-    ↓
-
-Minimum Reached
-    ↓
-
-Gathering
-    ↓
-
-Started
-```
-
-Possible termination paths:
-
-```text
-Open
-    → Closed
-
-Minimum Reached
-    → Closed
-
-Gathering
-    → Closed
-```
-
----
-
-# Notification Architecture
-
-## Requirements
-
-Notification methods should be independent from core game logic.
-
-The coordinator should never directly send emails, DMs, or SMS messages.
-
-Instead it emits events.
-
----
-
-## High-Level Design
-
-```text
-Coordinator
-     ↓
-
- Event Bus
-     ↓
-
-Notification Manager
-     ↓
-
-Providers
-```
-
-Providers:
-
-```text
-Email
-Discord
-Telegram
-Web Push
-SMS
-```
-
----
-
-## Provider Interface
-
-Conceptually every provider should support:
-
-```python
-verify()
-send()
-```
-
-Responsibilities:
-
-- User onboarding
-- Validation
-- Message delivery
-
----
-
-# Notification Providers
-
-## Email
-
-Registration flow:
-
-1. User enters email.
-2. Verification email sent.
-3. User confirms ownership.
-
-Capabilities:
-
-- Confirmation messages
-- Gathering notifications
-- Attendance links
-
-Initial priority: High
-
----
-
-## Discord
-
-Registration flow:
-
-1. User links Discord account.
-2. Bot validates messaging capability.
-3. User becomes reachable via DM.
-
-Capabilities:
-
-- Direct messages
-- Interactive buttons
-- Rich status updates
-
-Initial priority: High
-
----
-
-## Telegram
-
-Registration flow:
-
-1. User opens bot.
-2. User links account using token.
-3. Bot records Telegram ID.
-
-Initial priority: Medium
-
----
-
-## Web Push Notifications
-
-Registration flow:
-
-1. User enables notifications.
-2. Browser subscription stored.
-
-Capabilities:
-
-- Browser notifications
-- Mobile push notifications
-
-Initial priority: Medium
-
----
-
-## SMS
-
-Registration flow:
-
-1. User enters phone number.
-2. Number verified.
-
-Capabilities:
-
-- Critical notifications
-
-Initial priority: Low
-
-Reason:
-
-- Cost per message.
-
----
-
-# Verification Process
-
-Every notification provider owns its own verification process.
-
-Examples:
-
-## Email
-
-```text
-Verification Code
-```
-
-## Discord
-
-```text
-OAuth Login
-```
-
-or
-
-```text
-Bot DM Verification
-```
-
-## Telegram
-
-```text
-Bot Start Token
-```
-
-## Web Push
-
-```text
-Browser Subscription
-```
-
-This logic should not exist in the core coordination system.
-
----
-
-# Event-Driven Design
-
-The coordinator emits domain events.
-
-Example events:
-
-```text
-GameCreated
-PlayerJoined
-PlayerLeft
-MinimumReached
-GatheringStarted
-AttendanceConfirmed
-AttendanceDeclined
-GameStarted
-GameClosed
-```
-
-Notification providers subscribe to events.
-
-Benefits:
-
-- Low coupling
-- Easier testing
-- Easier future integrations
-
----
-
-# Data Model
-
-## Game
-
-```text
-Id
-Title
-Description
-Organizer
-Minimum Players
-Ideal Players
-Maximum Players
-Location
-Status
-Created At
-Updated At
-```
-
----
-
-## Player
-
-```text
-Id
-Display Name
-Created At
-```
-
----
-
-## Registration
-
-Represents a player joining a game.
-
-```text
-Id
-Game Id
-Player Id
-State
-Joined At
-```
-
-Possible states:
-
-```text
-Registered
-Coming
-Declined
-Withdrawn
-```
-
----
-
-## Notification Endpoint
-
-Represents a verified way to contact a player.
-
-```text
-Id
-Player Id
-Provider
-Address
-Verified
-```
-
-Examples:
-
-```text
-Email
-Discord
-Telegram
-SMS
-WebPush
-```
-
----
-
-# MVP Scope
-
-## Included
-
-- Create game proposal
-- QR code generation
-- Join game
-- Leave game
-- Minimum player tracking
-- Organizer notification
-- Gathering mode
-- Attendance confirmation
-- Email notifications
-- Discord notifications
-- Mobile-friendly web UI
-
----
-
-## Deferred
-
-- SMS
-- Telegram
-- Web Push
-- Convention-wide administration
-- Event calendars
-- Attendance statistics
-- Recurring games
-- Multi-convention support
-
----
-
-# Suggested Technology Stack
-
-## Backend
-
-```text
-Python
-FastAPI
-SQLAlchemy
-Alembic
-SQLite
-```
-
-SQLite should be sufficient for early development.
-
----
-
-## Frontend
-
-```text
-Jinja2
-HTMX
-Bootstrap or PicoCSS
-```
-
-Goals:
-
-- Mobile-friendly
-- Minimal JavaScript
-- Fast development
-
----
-
-## Background Jobs
-
-```text
-APScheduler
-```
-
-or
-
-```text
-Celery
-```
-
-depending on future scale requirements.
-
----
-
-## Notifications
-
-```text
-Email:
-    SMTP / Mailgun / SendGrid
-
-Discord:
-    discord.py
-```
-
----
-
-# Future Possibilities
-
-## Generalized Activities
-
-Rename "Game" to "Activity" internally.
-
-Potential activity examples:
-
-- BOTC
-- Board game
-- RPG session
-- CCG draft
-- Meetup
-
----
-
-## Convention Mode
-
-Support multiple simultaneous activities.
-
-Features:
-
-- Venue maps
-- Table assignments
-- Capacity tracking
-- Volunteer coordination
-
----
-
-## PWA Support
-
-Future enhancement.
-
-Advantages:
-
-- Faster access
-- Push notifications
-- Home screen installation
-
-The system should not depend on PWA installation for core functionality.
-
----
-
-# Success Criteria
-
-The MVP is considered successful if:
-
-1. An organizer can create a BOTC game.
-2. Players can sign up through a QR code.
-3. The organizer is notified when minimum players is reached.
-4. The organizer can initiate gathering.
-5. Players can confirm or decline attendance.
-6. Notifications work via email and Discord.
-7. The entire workflow functions from a mobile browser.
+- **Routes** handle HTTP requests, form/JSON validation, rendering, and errors.
+- **Game services** own registration rules and lifecycle transitions.
+- **Database access** uses Python's `sqlite3` and `sqlite3.Row`; `init_db()` creates
+  tables during application startup. SQLAlchemy and Alembic are not used.
+- **UI** uses Jinja2 templates, custom CSS, and JavaScript, rather than a separate
+  frontend application or an HTMX framework.
+- **Notifications** are queued records, not an external event bus or subscriber
+  system. Game services record delivery intent instead of calling providers.
+
+Multi-step writes use transactions. Registration insertion and its threshold
+notification share a transaction; starting a game and queuing its notices are
+also atomic. Creation and gathering currently commit the game change before
+queuing their notifications, leaving a failure window to address.
+
+## Current data model
+
+### `games`
+
+- `id`, `title`, `status`, `min_players`
+- `organizer_name`, `organizer_notification_method`, `organizer_notification_target`
+- `organizer_token`, `created_at`, `updated_at`
+
+Organizer details are stored on the game, not in a separate organizer table.
+There are no description, location, duration, ideal-count, or maximum-count fields.
+
+### `registrations`
+
+- `id`, `game_id`, `display_name`
+- `notification_method`, `notification_target`
+- Unique `attendance_token`
+- Nullable `attendance_response` (`coming` or `declined`), `responded_at`
+
+A null attendance response means unanswered. In-person registrations use method
+`none`, an empty target, and an immediate `coming` response. Registration counts
+count all remaining rows, not just players who have confirmed attendance.
+
+There is no separate player, attendance-response, or verified-contact table, and
+no soft-delete flag: removal deletes the registration row.
+
+### `notifications`
+
+- `id`, `game_id`, `recipient_role`, `recipient_name`
+- `notification_method`, `notification_target`, `event_type`, optional `action_token`
+- `status`, `attempt_count`, `next_attempt_at`, `last_error`, `sent_at`, `created_at`
+
+Notification statuses are separate from game states: `queued`, `sending`, `sent`,
+and `failed`. Dates and times are stored as text.
+
+## Notification delivery
+
+The implemented events are:
+
+| Event | Recipient |
+| --- | --- |
+| `game_created` | Organizer, with public and private organizer links |
+| `minimum_players_reached` | Organizer |
+| `gathering_started` | Registrations with contact details, with private attendance links |
+| `game_started` | Only unanswered registrations with contact details |
+
+There are no player-joined, player-left, attendance-response, or game-closed
+notification events in the current implementation.
+
+FastAPI's lifespan starts a background task that polls every 10 seconds and calls
+`process_notifications()` in a worker thread. Processing claims up to ten records
+per batch, with a two-minute sending lease for recovery of interrupted sends.
+Temporary failures use exponential backoff; the retry policy marks a notification
+failed on a permanent error or after five failed attempts. Delivery is not
+exactly-once: an interrupted send may be retried after provider acceptance.
+
+Enabled providers are configured with environment flags and shared across forms,
+API validation, and delivery. At least one must be enabled. Startup checks for
+required configuration variables; this does not prove credentials or targets work.
+
+| Provider | Current implementation and onboarding |
+| --- | --- |
+| Email | SMTP with STARTTLS; example configuration uses Mailjet. User enters an address; no ownership verification. |
+| Discord | `discord.py` bot; `/connect` DMs the user's ID for manual entry. No linked-account records or required ownership proof. |
+| SMS | Vonage API; Swedish mobile numbers in international `+46` format only. Number format is validated, not ownership. |
+| Telegram | Bot long polling; user presses Start and copies the returned private chat ID. No account-linking or verification records. |
+
+Run only one Telegram polling app instance per bot token and do not configure a
+webhook for that bot. Provider-specific configuration and delivery limitations are
+documented in `README.md` and `.env.example`. `sent` records provider acceptance,
+not confirmed receipt by the player.
+
+## Access and deployment
+
+- Public game pages and the open-game listing need no authentication.
+- Private organizer and attendance tokens are bearer credentials: protect their
+  links. The numeric-ID deletion endpoint is the known exception lacking access
+  control and must be hardened before untrusted public use.
+- Docker Compose runs one application container on port 3000. No reverse proxy,
+  TLS termination, or external job system is included.
+- `.env.example` sets `DATABASE_PATH=/data/gamegather.db`, matching the Compose
+  `sqlite_data` volume mounted at `/data`. Without the override, the code defaults
+  to `<working directory>/data/gamegather.db`.
+- `BASE_URL` determines links in notifications and must be reachable by recipients.
+- `GET /health` reports application status; it is not an end-to-end provider check.
+- Tests in `app/tests/` cover lifecycle locking, organizer-added registrations,
+  notification configuration, and provider behavior. See `AGENTS.md` for test
+  conventions and the test command.
+
+## Future ideas — not implemented or committed
+
+The original proposal included broader features. These remain optional design
+directions, not descriptions of the current application:
+
+- Secure player-facing withdrawal while open, after deletion authorization is fixed.
+- Editing proposals, cancellation/closure, drafts, or reopening, with explicit
+  transition and notification rules if adopted.
+- QR codes, descriptions, locations, durations, notes, ideal/maximum counts, and
+  capacity management.
+- Notification ownership verification, reusable accounts/contact endpoints, richer
+  Discord interactions, and Web Push/PWA support.
+- Automatic attendance refresh and aggregate attendance summaries.
+- Convention administration, venue maps, table assignments, calendars, recurring
+  games, attendance statistics, and multi-event support.
+- A different database, migrations, external workers, or an event bus if concrete
+  deployment needs justify the added complexity.
+
+Running BOTC itself, role assignment, script management, and social-network
+features remain outside the current coordinator's scope.
