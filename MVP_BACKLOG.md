@@ -81,6 +81,7 @@ A player can show interest in a game, but the organizer should only begin a gath
 - Add TLS and HTTPS
 - Add health check route
 - Add simple backup strategy
+- [ ] Require authorization for `DELETE /registrations/{registration_id}`. It currently accepts a numeric registration ID without a private token or ownership check. Require a private registration token or an organizer token authorized for that registration's game, while preserving the open-game-only removal restriction. Add regression tests rejecting missing/invalid credentials and attempts to delete another registration or another organizer's game registration, and covering authorized removal and rejection after gathering starts.
 
 ---
 
