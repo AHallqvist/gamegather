@@ -114,6 +114,9 @@ In-process notification worker → provider delivery
   tables during application startup. SQLAlchemy and Alembic are not used.
 - **UI** uses Jinja2 templates, custom CSS, and JavaScript, rather than a separate
   frontend application or an HTMX framework.
+- **Themes** use semantic CSS variables with a shared System/Light/Dark selector.
+  Preferences are browser-local; Light retains the original palette. Named themes
+  can be added without page-template changes; see `docs/themes.md`.
 - **Notifications** are queued records, not an external event bus or subscriber
   system. Game services record delivery intent instead of calling providers.
 

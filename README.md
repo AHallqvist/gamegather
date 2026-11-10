@@ -125,6 +125,15 @@ API clients can POST `{"display_name": "Player name"}` to
 `/organizer/games/{organizer_token}/register`. The private organizer token is
 required; public registration still requires notification details.
 
+## Appearance
+
+Use the **Theme** selector in the header to choose **System**, **Light**, or
+**Dark**. System follows your device preference; explicit choices are remembered
+in this browser. Light retains the original design. No account is needed.
+
+See [Creating themes](docs/themes.md) for palette variables, adding named themes,
+and test instructions.
+
 ## Stack
 
 - Python
@@ -140,3 +149,4 @@ This keeps the core game logic readable and easy to reason about while still sup
 - [`design.md`](design.md): Current architecture, data model, and clearly labeled future ideas.
 - [`MVP_BACKLOG.md`](MVP_BACKLOG.md): Implemented features, remaining work, and optional proposals.
 - [`AGENTS.md`](AGENTS.md): Coding conventions, implementation gotchas, and test guidance.
+- [`docs/themes.md`](docs/themes.md): Theme behavior and a guide to creating new palettes.
