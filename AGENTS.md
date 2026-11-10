@@ -76,12 +76,19 @@ The implemented organizer workflow is `open` → `gathering` → `started`:
 - Follow standard PEP 8 for Python.
 - Function names in services should be descriptive of the action (e.g., `create_registration` vs `add_player`).
 - Use type hints for all function signatures.
+- UI component colors must use the semantic palette variables in `app/static/styles.css`, not hardcoded colors. Theme registration, palette creation, and validation are documented in `docs/themes.md`. Keep the synchronous `theme.js` script before the stylesheet to avoid a wrong-theme flash.
 
 ## Testing Strategy
 Tests live in `app/tests/` and use Python's `unittest`, mocks, and FastAPI's `TestClient`. With the application dependencies installed, run from the repository root:
 
 ```bash
 PYTHONPATH=app python -m unittest discover -s app/tests
+```
+
+Theme preference tests use Node.js 18+ with no npm dependencies:
+
+```bash
+node --test app/tests/theme.test.cjs
 ```
 
 Service tests use temporary SQLite databases by patching `src.database.DB_PATH` and calling `init_db()`. Follow the existing environment-patching and mocked-provider patterns; do not use the development database or send real notifications in tests. Add regression tests for lifecycle restrictions, authorization, registration behavior, and notification targeting when changing those rules.

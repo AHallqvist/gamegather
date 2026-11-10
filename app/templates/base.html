@@ -4,13 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}GameGather{% endblock %}</title>
+  <script src="/static/theme.js"></script>
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/notification-fields.js" defer></script>
 </head>
 <body>
   <header class="site-header">
     <a class="brand" href="/">GameGather</a>
-    <a href="/games/new">Create a game</a>
+    <div class="header-actions">
+      <a href="/games/new">Create a game</a>
+      <div class="theme-picker" data-theme-picker hidden>
+        <label for="theme-select">Theme</label>
+        <select id="theme-select" data-theme-select></select>
+      </div>
+    </div>
   </header>
   <main class="container">
     {% block content %}{% endblock %}

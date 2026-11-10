@@ -14,6 +14,8 @@ for usage and configuration.
 ## Implemented
 
 - [x] FastAPI API and server-rendered, mobile-friendly web pages.
+- [x] Persistent System/Light/Dark theme selection, shared palette variables, and
+  documentation for adding future named themes without a frontend build pipeline.
 - [x] SQLite tables for games, registrations, and queued notifications.
 - [x] Create an immediately open game with public and private organizer URLs.
 - [x] List open games and view individual public game pages and player counts.
