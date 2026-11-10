@@ -86,6 +86,7 @@ class CreateGameRequest(BaseModel):
     organizer_name: str
     organizer_notification_method: str
     organizer_notification_target: str
+    organizer_is_player: bool = False
 
 
 class CreateRegistrationRequest(BaseModel):
@@ -146,6 +147,7 @@ async def create_game_form(request: Request) -> Response:
             organizer_name=organizer_name,
             organizer_notification_method=str(form.get("notification_method", "")),
             organizer_notification_target=notification_target,
+            organizer_is_player=form.get("organizer_is_player") == "true",
         )
     except ValueError as exc:
         return page_error(request, 400, str(exc))
@@ -258,6 +260,7 @@ def create_game_endpoint(payload: CreateGameRequest) -> dict[str, Any]:
             organizer_name=payload.organizer_name,
             organizer_notification_method=payload.organizer_notification_method,
             organizer_notification_target=payload.organizer_notification_target,
+            organizer_is_player=payload.organizer_is_player,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

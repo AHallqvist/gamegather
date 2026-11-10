@@ -16,6 +16,10 @@
       <label>Your name
         <input name="organizer_name" required maxlength="100">
       </label>
+      <label class="checkbox-label">
+        <input name="organizer_is_player" type="checkbox" value="true">
+        <span>Add me as a player</span>
+      </label>
       {% include "notification_fields.html" %}
       <button type="submit">Create game</button>
     </form>

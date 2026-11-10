@@ -14,8 +14,9 @@ def create_game(
     organizer_name: str,
     organizer_notification_method: str,
     organizer_notification_target: str,
+    organizer_is_player: bool = False,
 ) -> dict[str, Any]:
-    """Atomically create a game and queue its organizer confirmation."""
+    """Atomically create a game and optionally register the organizer."""
     organizer_notification_target = validate_notification_target(
         organizer_notification_method, organizer_notification_target,
     )
@@ -59,6 +60,11 @@ def create_game(
             event_type="game_created",
             connection=conn,
         )
+        if organizer_is_player:
+            game = conn.execute(
+                "SELECT * FROM games WHERE id = ?", (game_id,),
+            ).fetchone()
+            _insert_registration(conn, game, organizer_name, "none", "", "coming")
 
     return {
         "id": game_id,
