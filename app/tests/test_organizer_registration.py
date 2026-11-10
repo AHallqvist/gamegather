@@ -55,6 +55,57 @@ class OrganizerRegistrationTests(unittest.TestCase):
         ])
         self.assertTrue(all(row["recipient_role"] == "organizer" for row in notices))
 
+    def test_create_game_can_register_organizer_as_player(self) -> None:
+        game = create_game(
+            "Organizer plays", 1, "Organizer", "email", "organizer@example.com",
+            organizer_is_player=True,
+        )
+        token = game["organizer_url"].split("/")[-1]
+        result = get_organizer_game(token)
+        self.assertEqual(len(result["registrations"]), 1)
+        registration = result["registrations"][0]
+        self.assertEqual(registration["display_name"], "Organizer")
+        self.assertEqual(registration["notification_method"], "none")
+        self.assertEqual(registration["notification_target"], "")
+        self.assertEqual(registration["attendance_response"], "coming")
+        self.assertEqual(count_active_players(game["id"]), 1)
+        with database.get_connection() as conn:
+            events = [row["event_type"] for row in conn.execute(
+                "SELECT event_type FROM notifications WHERE game_id = ? ORDER BY id",
+                (game["id"],),
+            )]
+        self.assertEqual(events, ["game_created", "minimum_players_reached"])
+
+    def test_create_game_form_and_api_accept_organizer_player_option(self) -> None:
+        new_game_page = self.client.get("/games/new").text
+        self.assertIn('name="organizer_is_player"', new_game_page)
+        self.assertIn("Add me as a player", new_game_page)
+        form_response = self.client.post("/games/new", data={
+            "title": "Form game",
+            "min_players": "3",
+            "organizer_name": "Form organizer",
+            "notification_method": "email",
+            "notification_target": "form@example.com",
+            "organizer_is_player": "true",
+        }, follow_redirects=False)
+        self.assertEqual(form_response.status_code, 303)
+        form_token = form_response.headers["location"].split("/")[-1]
+        form_registrations = get_organizer_game(form_token)["registrations"]
+        self.assertEqual([row["display_name"] for row in form_registrations], ["Form organizer"])
+
+        api_response = self.client.post("/games", json={
+            "title": "API game",
+            "min_players": 3,
+            "organizer_name": "API organizer",
+            "organizer_notification_method": "email",
+            "organizer_notification_target": "api@example.com",
+            "organizer_is_player": True,
+        })
+        self.assertEqual(api_response.status_code, 200)
+        api_token = api_response.json()["game"]["organizer_url"].split("/")[-1]
+        api_registrations = get_organizer_game(api_token)["registrations"]
+        self.assertEqual([row["display_name"] for row in api_registrations], ["API organizer"])
+
     def test_mixed_group_notifies_only_contactable_players(self) -> None:
         create_organizer_registration(self.token, "In person")
         create_registration(self.game["id"], "Online", "email", "player@example.com")
