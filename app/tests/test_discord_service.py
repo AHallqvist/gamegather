@@ -16,7 +16,13 @@ class DiscordServiceTests(unittest.IsolatedAsyncioTestCase):
             followup=SimpleNamespace(send=AsyncMock()),
         )
         await connect_command(interaction)
-        self.assertIn("123456", interaction.user.send.call_args.args[0])
+        self.assertEqual(interaction.user.send.await_count, 2)
+        first_message = interaction.user.send.await_args_list[0]
+        self.assertIn("123456", first_message.args[0])
+        self.assertTrue(first_message.args[0].endswith(
+            "I will now send you just your ID as a separate message for easier copy+pasting."
+        ))
+        self.assertEqual(interaction.user.send.await_args_list[1].args[0], "123456")
         interaction.followup.send.assert_awaited_once_with(
             "Check your DMs for your user ID.", ephemeral=True,
         )

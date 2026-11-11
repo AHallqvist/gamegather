@@ -22,7 +22,12 @@ async def connect_command(interaction: discord.Interaction) -> None:
             "You can receive GameGather messages!\n\n"
             f"Your Discord user ID: {interaction.user.id}\n\n"
             "Choose Discord when creating a game or registering, and paste this ID "
-            "into the notification address or ID field.",
+            "into the notification address or ID field.\n\n"
+            "I will now send you just your ID as a separate message for easier copy+pasting.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        await interaction.user.send(
+            str(interaction.user.id),
             allowed_mentions=discord.AllowedMentions.none(),
         )
     except discord.Forbidden:
