@@ -79,8 +79,10 @@ def handle_update(update: dict[str, Any]) -> None:
         "You can receive GameGather messages!\n\n"
         f"Your Telegram private chat ID: {chat_id}\n\n"
         "Choose Telegram when creating a game or registering and paste this ID "
-        "into the notification address or ID field.",
+        "into the notification address or ID field.\n\n"
+        "I will now send you just your ID as a separate message for easier copy+pasting.",
     )
+    send_message(chat_id, chat_id)
 
 
 class TelegramService:

@@ -18,10 +18,15 @@ class TelegramTests(unittest.TestCase):
     def test_start_echoes_private_id(self) -> None:
         with patch("src.services.telegram_service.send_message") as send:
             handle_update({"message": {"chat": {"type": "private", "id": 123}, "text": "/start"}})
-            self.assertEqual(send.call_args.args[0], "123")
-            self.assertIn("123", send.call_args.args[1])
+            self.assertEqual(send.call_count, 2)
+            self.assertEqual(send.call_args_list[0].args[0], "123")
+            self.assertIn("123", send.call_args_list[0].args[1])
+            self.assertTrue(send.call_args_list[0].args[1].endswith(
+                "I will now send you just your ID as a separate message for easier copy+pasting."
+            ))
+            self.assertEqual(send.call_args_list[1].args, ("123", "123"))
             handle_update({"message": {"chat": {"type": "group", "id": -123}, "text": "/start"}})
-            self.assertEqual(send.call_count, 1)
+            self.assertEqual(send.call_count, 2)
 
     def test_targets_are_private_ids(self) -> None:
         self.assertEqual(validate_chat_id("123456"), "123456")
@@ -85,7 +90,8 @@ class TelegramLifecycleTests(unittest.IsolatedAsyncioTestCase):
             await service.start()
             await asyncio.wait_for(service.task, timeout=2)
             await service.close()
-            send.assert_called_once()
+            self.assertEqual(send.call_count, 2)
+            self.assertEqual(send.call_args_list[1].args, ("123", "123"))
             polls = [payload for method, payload in calls if method == "getUpdates"]
             self.assertEqual([payload["offset"] for payload in polls], [0, 11])
 
